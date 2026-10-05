@@ -1289,6 +1289,13 @@ end
 	assign {dv_data_osd, dv_hs_osd, dv_vs_osd, dv_cs_osd } = {vga_data_osd, vga_hs_osd, vga_vs_osd, vga_cs_osd };
 `endif
 
+`ifdef MAC_480I_TEST
+assign HDMI_TX_CLK = 1'b0;
+assign HDMI_TX_DE = 1'b0;
+assign HDMI_TX_D = 24'd0;
+assign HDMI_TX_HS = 1'b0;
+assign HDMI_TX_VS = 1'b0;
+`else
 wire hdmi_tx_clk;
 `ifndef MISTER_DEBUG_NOHDMI
 	cyclonev_clkselect hdmi_clk_sw
@@ -1365,6 +1372,7 @@ assign HDMI_TX_HS = hdmi_out_hs;
 assign HDMI_TX_VS = hdmi_out_vs;
 assign HDMI_TX_DE = hdmi_out_de;
 assign HDMI_TX_D  = hdmi_out_d;
+`endif
 
 /////////////////////////  VGA output  //////////////////////////////////
 
@@ -1557,11 +1565,19 @@ reg  [39:0] PhaseInc;
 	wire cs1 = vgas_en ? vgas_cs : vga_cs;
 	wire de1 = vgas_en ? vgas_de : vga_de;
 
+	`ifdef MAC_480I_TEST
+	assign VGA_VS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (tv_vs ^ VS[12]);
+	assign VGA_HS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (tv_hs ^ HS[12]);
+	assign VGA_R  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[23:18];
+	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[15:10];
+	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[7:2];
+	`else
 	assign VGA_VS = av_dis ? 1'bZ      :(((vgas_en ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en) & subcarrier_out);
-	assign VGA_HS = av_dis ? 1'bZ      :  (vgas_en ? ((csync_en ? ~vgas_cs : ~vgas_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
+	assign VGA_HS = av_dis ? 1'bZ      :  (vgas_en ? ((csync_en ? ~vgas_cs : ~vga_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
 	assign VGA_R  = av_dis ? 6'bZZZZZZ :   vgas_en ? vgas_o[23:18]                               : VGA_DISABLE ? 6'd0 : vga_o[23:18];
 	assign VGA_G  = av_dis ? 6'bZZZZZZ :   vgas_en ? vgas_o[15:10]                               : VGA_DISABLE ? 6'd0 : vga_o[15:10];
 	assign VGA_B  = av_dis ? 6'bZZZZZZ :   vgas_en ? vgas_o[7:2]                                 : VGA_DISABLE ? 6'd0 : vga_o[7:2]  ;
+	`endif
 
 	wire [1:0] vga_r  = vgas_en ? vgas_o[17:16] : VGA_DISABLE ? 2'd0 : vga_o[17:16];
 	wire [1:0] vga_g  = vgas_en ? vgas_o[9:8]   : VGA_DISABLE ? 2'd0 : vga_o[9:8];
@@ -1735,7 +1751,7 @@ wire  [1:0] scanlines;
 wire  [7:0] r_out, g_out, b_out, hr_out, hg_out, hb_out;
 wire        vs_fix, hs_fix, de_emu, vs_emu, hs_emu, f1;
 wire        hvs_fix, hhs_fix, hde_emu;
-wire        clk_vid, ce_pix, clk_ihdmi, ce_hpix;
+wire        clk_vid, clk_video_half, ce_pix, clk_ihdmi, ce_hpix;
 wire        vga_force_scaler;
 
 wire        ram_clk;
@@ -1753,6 +1769,25 @@ wire        led_user;
 wire  [1:0] led_power;
 wire  [1:0] led_disk;
 wire  [1:0] btn;
+
+`ifdef MAC_480I_TEST
+wire [23:0] tv_rgb;
+wire tv_hs, tv_vs, tv_de;
+mac_interlacer interlacer
+(
+	.clk_vga(clk_vid),
+	.clk_tv(clk_video_half),
+	.reset(reset),
+	.vga_hs(hs_emu),
+	.vga_vs(vs_emu),
+	.vga_de(de_emu),
+	.vga_rgb({r_out, g_out, b_out}),
+	.tv_hs(tv_hs),
+	.tv_vs(tv_vs),
+	.tv_de(tv_de),
+	.tv_rgb(tv_rgb)
+);
+`endif
 
 sync_fix sync_v(clk_vid, vs_emu, vs_fix);
 sync_fix sync_h(clk_vid, hs_emu, hs_fix);
@@ -1836,6 +1871,7 @@ emu emu
 	.HDMI_BOB_DEINT(bob_deint),
 
 	.CLK_VIDEO(clk_vid),
+	.clk_video_half(clk_video_half),
 	.CE_PIXEL(ce_pix),
 	.VGA_SL(scanlines),
 	.VIDEO_ARX(ARX),

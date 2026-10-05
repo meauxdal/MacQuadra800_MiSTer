@@ -85,8 +85,10 @@ localparam CONF_STR = {
 	// The monitor on the DA-15.  The ROM samples the DAFB sense lines once
 	// at boot and QuickDraw lays out for that geometry, so this is latched
 	// under reset like the RAM size (MacLC does the same).
+`ifndef MAC_480I_TEST
 `ifndef VIDEO_512_OFF
 	"O[5],Monitor (on reset),13in 640x480,12in 512x384;",
+`endif
 `endif
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[13:12],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
@@ -274,12 +276,19 @@ pll_video pllv
 	.refclk(CLK_50M),
 	.rst(1'b0),
 	.outclk_0(clk_vid),
+	.outclk_1(clk_video_half),
 	.locked(pll_video_locked),
 	.reconfig_to_pll(reconfig_to_pll),
 	.reconfig_from_pll(reconfig_from_pll)
 );
 
-`ifdef VIDEO_512_OFF
+`ifdef MAC_480I_TEST
+// The analog interlace test is fixed to 13-inch timing. Keep C0 static
+// at 25.175 MHz so C1 remains exactly half-rate for the test raster.
+assign reconfig_to_pll = 64'd0;
+wire   pix_quiet = 1'b0;
+wire   mon_12in  = 1'b0;
+`elsif VIDEO_512_OFF
 // VIDEO_512_OFF=1 (qsf): no runtime PLL reconfiguration -- the 13" 640x480
 // divider is the static config and stays.  Saves the pll_cfg block (~360
 // ALMs), the area lever for CPU builds that keep the CD-ROM target.

@@ -136,6 +136,12 @@ tb_easc:
 	$V --binary --timing -Wno-fatal -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED -Wno-CMPCONST -Wno-DECLFILENAME +define+SIMULATION=1 --top-module tb_easc --Mdir ./obj_dir_tb -o tb_easc tb_easc.sv $(RTL)/easc.sv
 	./obj_dir_tb/tb_easc
 
+# Timing and selected-line parity for the 25.175-to-12.5875 MHz interlacer.
+#   make tb_mac_interlacer
+tb_mac_interlacer:
+	$V --binary --timing -Wno-fatal -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED -Wno-CMPCONST -Wno-DECLFILENAME --top-module tb_mac_interlacer --Mdir ./obj_dir_tb_mac_interlacer -o tb_mac_interlacer tb_mac_interlacer.sv $(RTL)/mac_interlacer.sv
+	./obj_dir_tb_mac_interlacer/tb_mac_interlacer
+
 # Built-in Ethernet front-end (rtl/sonic_mbx.sv): doorbell ring, on-demand
 # register reads, local ISR/IMR, CR overlay, the op-list DMA engine, reset
 # replay protection, bus watchdog, OSD-off inertness.

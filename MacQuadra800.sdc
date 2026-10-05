@@ -28,3 +28,7 @@ set_clock_groups -asynchronous -group [get_clocks {emu|pllv|*|divclk}]
 # Belt and braces: the synchronizer heads (redundant with the group above).
 set_false_path -to [get_keepers {*fb_base_meta* *stride_meta* *mode_meta*}]
 set_false_path -to [get_keepers {*vidrst_meta* *vbl_meta* *mon_meta*}]
+
+# C1 is the half-rate output of the video PLL; the field toggle crosses from
+# C0 to C1 through this first synchronizer stage.
+set_false_path -to [get_keepers {*interlacer|field_sync_meta*}]

@@ -10,6 +10,7 @@ inout  [45:0] HPS_BUS,
 
 //Base video clock. Usually equals to CLK_SYS.
 output        CLK_VIDEO,
+output        clk_video_half,
 
 //Multiple resolutions are supported using different CE_PIXEL rates.
 //Must be based on CLK_VIDEO
