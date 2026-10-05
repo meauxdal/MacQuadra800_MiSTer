@@ -19,12 +19,16 @@
 //   VCO/2 = 50 MHz x M(14 + 420906795/2^32) = 704.899999 MHz
 //   C0=28 -> 25.175000 MHz  13" RGB 640x480 -> 59.94 Hz (exact)
 //   C0=45 -> 15.664444 MHz  12" RGB 512x384 -> 60.14 Hz (real DAFB 15.6672)
+// MAC_384P_TEST selects C0=45 statically at compile time; no fabric clock
+// mux or runtime retarget is used for the progressive analog test.
 //
-// STATIC configuration = C0=28 (25.175 MHz). The reconfig FSM in
-// MacQuadra800.sv inits its change-detect to this value, so a 13" boot
-// performs NO runtime reconfig at all: MacLC's first pixel-clock build did a
-// boot-time retarget and the PLL unlock/relock glitched CLK_VIDEO while the
-// HPS was mounting SD images and ascal was locking (BERR storm, hard wedge).
+// The normal static configuration is C0=28 (25.175 MHz). The 384p test
+// instead builds C0=45 (15.664444 MHz) and disables runtime reconfiguration.
+// The normal reconfig FSM in MacQuadra800.sv inits its change-detect to C0=28,
+// so a 13" boot performs NO runtime reconfig at all: MacLC's first pixel-clock
+// build did a boot-time retarget and the PLL unlock/relock glitched CLK_VIDEO
+// while the HPS was mounting SD images and ascal was locking (BERR storm,
+// hard wedge).
 // The 12" retarget is SLOWER than the 25.175 MHz constraint, so STA stays
 // valid; a faster tap must move the static config to the faster divider.
 //
@@ -52,7 +56,13 @@ module pll_video (
 		.pll_dsm_out_sel("1st_order"),
 		.operation_mode("direct"),
 		.number_of_clocks(2),
+`ifdef MAC_480I_TEST
 		.output_clock_frequency0("25.175000 MHz"),
+`elsif MAC_384P_TEST
+		.output_clock_frequency0("15.664444 MHz"),
+`else
+		.output_clock_frequency0("25.175000 MHz"),
+`endif
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
 		.output_clock_frequency1("12.587500 MHz"),
@@ -116,13 +126,27 @@ module pll_video (
 		.n_cnt_bypass_en("true"),
 		.m_cnt_odd_div_duty_en("false"),
 		.n_cnt_odd_div_duty_en("false"),
+`ifdef MAC_480I_TEST
 		.c_cnt_hi_div0(14),
 		.c_cnt_lo_div0(14),
+`elsif MAC_384P_TEST
+		.c_cnt_hi_div0(22),
+		.c_cnt_lo_div0(23),
+`else
+		.c_cnt_hi_div0(14),
+		.c_cnt_lo_div0(14),
+`endif
 		.c_cnt_prst0(1),
 		.c_cnt_ph_mux_prst0(0),
 		.c_cnt_in_src0("ph_mux_clk"),
 		.c_cnt_bypass_en0("false"),
+`ifdef MAC_480I_TEST
 		.c_cnt_odd_div_duty_en0("false"),
+`elsif MAC_384P_TEST
+		.c_cnt_odd_div_duty_en0("true"),
+`else
+		.c_cnt_odd_div_duty_en0("false"),
+`endif
 		.c_cnt_hi_div1(28),
 		.c_cnt_lo_div1(28),
 		.c_cnt_prst1(1),

@@ -1295,6 +1295,12 @@ assign HDMI_TX_DE = 1'b0;
 assign HDMI_TX_D = 24'd0;
 assign HDMI_TX_HS = 1'b0;
 assign HDMI_TX_VS = 1'b0;
+`elsif MAC_384P_TEST
+assign HDMI_TX_CLK = 1'b0;
+assign HDMI_TX_DE = 1'b0;
+assign HDMI_TX_D = 24'd0;
+assign HDMI_TX_HS = 1'b0;
+assign HDMI_TX_VS = 1'b0;
 `else
 wire hdmi_tx_clk;
 `ifndef MISTER_DEBUG_NOHDMI
@@ -1571,6 +1577,12 @@ reg  [39:0] PhaseInc;
 	assign VGA_R  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[23:18];
 	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[15:10];
 	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[7:2];
+	`elsif MAC_384P_TEST
+	assign VGA_VS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (vs_emu ^ VS[12]);
+	assign VGA_HS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (hs_emu ^ HS[12]);
+	assign VGA_R  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : r_out[7:2];
+	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : g_out[7:2];
+	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : b_out[7:2];
 	`else
 	assign VGA_VS = av_dis ? 1'bZ      :(((vgas_en ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en) & subcarrier_out);
 	assign VGA_HS = av_dis ? 1'bZ      :  (vgas_en ? ((csync_en ? ~vgas_cs : ~vga_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));

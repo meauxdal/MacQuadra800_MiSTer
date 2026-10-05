@@ -86,8 +86,10 @@ localparam CONF_STR = {
 	// at boot and QuickDraw lays out for that geometry, so this is latched
 	// under reset like the RAM size (MacLC does the same).
 `ifndef MAC_480I_TEST
+`ifndef MAC_384P_TEST
 `ifndef VIDEO_512_OFF
 	"O[5],Monitor (on reset),13in 640x480,12in 512x384;",
+`endif
 `endif
 `endif
 	"O[122:121],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -288,6 +290,12 @@ pll_video pllv
 assign reconfig_to_pll = 64'd0;
 wire   pix_quiet = 1'b0;
 wire   mon_12in  = 1'b0;
+`elsif MAC_384P_TEST
+// The progressive analog test uses the DAFB's native 12-inch raster and
+// its matching static C0 clock. Do not route this through the 480i half-rate.
+assign reconfig_to_pll = 64'd0;
+wire   pix_quiet = 1'b0;
+wire   mon_12in  = 1'b1;
 `elsif VIDEO_512_OFF
 // VIDEO_512_OFF=1 (qsf): no runtime PLL reconfiguration -- the 13" 640x480
 // divider is the static config and stays.  Saves the pll_cfg block (~360
