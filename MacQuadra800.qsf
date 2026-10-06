@@ -631,8 +631,10 @@ set_global_assignment -name VERILOG_MACRO "CACHE_CD_OFF=1"
 #set_global_assignment -name VERILOG_MACRO "VIDEO_512_OFF=1"
 set_global_assignment -name VERILOG_MACRO "CACHE_SMALL=1"
 
-# TEST BUILD ONLY: fixed 13-inch input and direct interlaced VGA output.
-set_global_assignment -name VERILOG_MACRO "MAC_480I_TEST=1"
+# TEST BUILD ONLY: native 12-inch progressive VGA output with framework video
+# processing/ASCAL enabled. Replace MAC_384P_TEST with MAC_480I_TEST for 480i.
+set_global_assignment -name VERILOG_MACRO "MAC_384P_TEST=1"
+# OSD on analog VGA remains active; omit ASCAL and the unused HDMI path.
 set_global_assignment -name VERILOG_MACRO "MISTER_DEBUG_NOHDMI=1"
 
 #use only 1MB per frame for scaler to free ~21MB DDR3 RAM

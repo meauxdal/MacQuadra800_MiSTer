@@ -1578,11 +1578,11 @@ reg  [39:0] PhaseInc;
 	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[15:10];
 	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : tv_rgb[7:2];
 	`elsif MAC_384P_TEST
-	assign VGA_VS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (vs_emu ^ VS[12]);
-	assign VGA_HS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (hs_emu ^ HS[12]);
-	assign VGA_R  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : r_out[7:2];
-	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : g_out[7:2];
-	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : b_out[7:2];
+	assign VGA_VS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (vga_vs_osd ^ VS[12]);
+	assign VGA_HS = av_dis ? 1'bZ : VGA_DISABLE ? 1'b1 : (vga_hs_osd ^ HS[12]);
+	assign VGA_R  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : vga_data_osd[23:18];
+	assign VGA_G  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : vga_data_osd[15:10];
+	assign VGA_B  = av_dis ? 6'bZZZZZZ : VGA_DISABLE ? 6'd0 : vga_data_osd[7:2];
 	`else
 	assign VGA_VS = av_dis ? 1'bZ      :(((vgas_en ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en) & subcarrier_out);
 	assign VGA_HS = av_dis ? 1'bZ      :  (vgas_en ? ((csync_en ? ~vgas_cs : ~vga_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
@@ -1790,10 +1790,10 @@ mac_interlacer interlacer
 	.clk_vga(clk_vid),
 	.clk_tv(clk_video_half),
 	.reset(reset),
-	.vga_hs(hs_emu),
-	.vga_vs(vs_emu),
-	.vga_de(de_emu),
-	.vga_rgb({r_out, g_out, b_out}),
+	.vga_hs(vga_hs_osd),
+	.vga_vs(vga_vs_osd),
+	.vga_de(vga_de_osd),
+	.vga_rgb(vga_data_osd),
 	.tv_hs(tv_hs),
 	.tv_vs(tv_vs),
 	.tv_de(tv_de),
