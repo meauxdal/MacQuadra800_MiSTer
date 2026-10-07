@@ -24,7 +24,11 @@ set_clock_groups -exclusive \
 set_false_path -from [get_ports {KEY*}]
 set_false_path -from [get_ports {BTN_*}]
 set_false_path -to   [get_ports {LED_*}]
-set_false_path -to   [get_ports {VGA_*}]
+# The CRT profile supplies an explicit TV-to-DAC routing budget in the core
+# SDC. Do not hide those paths behind the normal asynchronous VGA exception.
+if {[get_collection_size [get_registers -nowarn {*crt_tv|*}]] == 0} {
+    set_false_path -to [get_ports {VGA_*}]
+}
 set_false_path -from [get_ports {VGA_EN}]
 set_false_path -to   [get_ports {AUDIO_SPDIF}]
 set_false_path -to   [get_ports {AUDIO_L}]

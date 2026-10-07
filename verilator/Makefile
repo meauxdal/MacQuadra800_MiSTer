@@ -142,6 +142,32 @@ tb_mac_interlacer:
 	$V --binary --timing -Wno-fatal -Wno-WIDTH -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNSIGNED -Wno-CMPCONST -Wno-DECLFILENAME --top-module tb_mac_interlacer --Mdir ./obj_dir_tb_mac_interlacer -o tb_mac_interlacer tb_mac_interlacer.sv $(RTL)/mac_interlacer.sv
 	./obj_dir_tb_mac_interlacer/tb_mac_interlacer
 
+# Independent 27 MHz raster/pattern verification; no FPGA build or hardware.
+TV525_OUT ?= out/tv525
+TV525_STAGE2_OUT ?= out/tv525_stage2
+TV525_STAGE2_RTL = $(RTL)/tv525_output.sv $(RTL)/tv525_timing.sv $(RTL)/tv_test_pattern.sv $(RTL)/tv_osd.sv $(RTL)/tv_component.sv $(RTL)/tv_component_pins.sv
+.PHONY: tb_tv525_platform
+tb_tv525_platform:
+	$V --lint-only --Wall --top-module tv525_platform $(RTL)/tv525_platform.sv $(TV525_STAGE2_RTL)
+	$V --cc --exe --build -j 4 --Wall --top-module tv525_platform --Mdir ./obj_dir_tb_tv525_platform -o tb_tv525_platform -CFLAGS "-std=c++17 -O2" $(RTL)/tv525_platform.sv $(TV525_STAGE2_RTL) tb_tv525_platform.cpp
+	./obj_dir_tb_tv525_platform/tb_tv525_platform
+.PHONY: tb_tv_component tb_tv525_output
+tb_tv_component:
+	$V --lint-only --Wall --top-module tv_component $(RTL)/tv_component.sv
+	$V --cc --exe --build -j 4 --Wall --top-module tv_component --Mdir ./obj_dir_tb_tv_component -o tb_tv_component -CFLAGS "-std=c++17 -O2" $(RTL)/tv_component.sv tb_tv_component.cpp
+	./obj_dir_tb_tv_component/tb_tv_component
+
+tb_tv525_output: tb_tv_component
+	$V --lint-only --Wall --top-module tv525_output $(TV525_STAGE2_RTL)
+	$V --cc --exe --build -j 4 --Wall --top-module tv525_output --Mdir ./obj_dir_tb_tv525_output -o tb_tv525_output -CFLAGS "-std=c++17 -O2" $(TV525_STAGE2_RTL) tb_tv525_output.cpp
+	./obj_dir_tb_tv525_output/tb_tv525_output $(TV525_STAGE2_OUT)
+	python3 render_tv525_stage2.py $(TV525_STAGE2_OUT)
+.PHONY: tb_tv525
+tb_tv525:
+	$V --cc --exe --build -j 4 --trace --timescale-override 1ps/1ps --top-module tv525_diagnostic --Mdir ./obj_dir_tb_tv525 -o tb_tv525 -CFLAGS "-std=c++17 -O2" tv525_diagnostic.sv $(RTL)/tv525_timing.sv $(RTL)/tv_test_pattern.sv tb_tv525.cpp
+	./obj_dir_tb_tv525/tb_tv525 $(TV525_OUT)
+	python3 render_tv525.py $(TV525_OUT)
+
 # Built-in Ethernet front-end (rtl/sonic_mbx.sv): doorbell ring, on-demand
 # register reads, local ISR/IMR, CR overlay, the op-list DMA engine, reset
 # replay protection, bus watchdog, OSD-off inertness.

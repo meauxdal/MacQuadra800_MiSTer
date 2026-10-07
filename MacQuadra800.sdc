@@ -32,3 +32,29 @@ set_false_path -to [get_keepers {*vidrst_meta* *vbl_meta* *mon_meta*}]
 # C1 is the half-rate output of the video PLL; the field toggle crosses from
 # C0 to C1 through this first synchronizer stage.
 set_false_path -to [get_keepers {*interlacer|field_sync_meta*}]
+
+# Independent TV domain: constrain actual crossings individually. A blanket
+# asynchronous clock-group cut would also hide the held configuration bus.
+set tv525_clocks [get_clocks -nowarn {*tv525_pll|*|divclk}]
+if {[get_collection_size [get_registers -nowarn {*crt_tv|*}]] != 0} {
+    if {[get_collection_size $tv525_clocks] == 0} {
+        error "TV diagnostic exists but its derived 27 MHz PLL clock was not found"
+    }
+    set_false_path -to [get_registers {*crt_tv|*|req_meta *crt_tv|*|ack_meta *crt_tv|disable_meta}]
+    # PLL-lock assertion is asynchronous; release is a 3FF chain per domain.
+    set_false_path -from [get_pins {*tv525_pll|*|locked}] -to [get_registers {*crt_tv|tv_reset_pipe* *crt_tv|sys_reset_pipe*}]
+    # Receiver has two synchronizer stages plus a frame-boundary wait before
+    # sampling the held bus. Bound physical data delay to one 27 MHz period.
+    set tv525_payload [get_registers {*crt_tv|*|config_payload*}]
+    set tv525_config [get_registers {*crt_tv|*|tv_config*}]
+    if {[get_collection_size $tv525_payload] == 0 || [get_collection_size $tv525_config] == 0} {
+        error "TV OSD mailbox endpoints were not found; review synthesis hierarchy"
+    }
+    set_max_delay 30.0 -from $tv525_payload -to $tv525_config
+    set_false_path -hold -from $tv525_payload -to $tv525_config
+    # Analog DAC has no receiver clock; budget 10 ns for register-to-pin
+    # propagation. This is an FPGA routing budget, not an analog voltage spec.
+    set tv525_dac_ports [get_ports {VGA_R* VGA_G* VGA_B* VGA_HS VGA_VS SDIO_CLK SDIO_CMD SDIO_DAT*}]
+    set_max_delay 10.0 -from $tv525_clocks -to $tv525_dac_ports
+    set_false_path -hold -from $tv525_clocks -to $tv525_dac_ports
+}

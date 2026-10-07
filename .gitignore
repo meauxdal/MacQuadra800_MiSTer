@@ -64,6 +64,9 @@ cpu_trace.log
 ram_debug.log
 verilator/obj_dir
 verilator/obj_dir_tb*
+# Generated standalone TV timing reconstructions and waveforms.
+verilator/out/tv525/
+verilator/out/tv525_stage2/
 verilator/*.png
 
 # analysis scratchpad (Track A/C diffs, sim summaries, screenshots)
