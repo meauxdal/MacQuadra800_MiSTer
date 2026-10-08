@@ -15,6 +15,13 @@ output        clk_video_half,
 //Multiple resolutions are supported using different CE_PIXEL rates.
 //Must be based on CLK_VIDEO
 output        CE_PIXEL,
+`ifdef MAC_TV525_DIAG
+// Raw DAFB stream, before video_freak and all overlays.
+output [23:0] TV_NATIVE_RGB,
+output TV_NATIVE_DE, TV_NATIVE_LINE, TV_NATIVE_FRAME, TV_NATIVE_RESET,
+output [9:0] TV_NATIVE_WIDTH,
+output [8:0] TV_NATIVE_HEIGHT,
+`endif
 
 //Video aspect ratio for HDMI. Most retro systems have ratio 4:3.
 //if VIDEO_ARX[12] or VIDEO_ARY[12] is set then [11:0] contains scaled size instead of aspect ratio.

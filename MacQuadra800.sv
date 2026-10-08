@@ -755,6 +755,8 @@ quadra800 #(.RAM_ADDR_BITS(RAM_ADDR_BITS), .CDROM(CDROM_EN), .SONIC(SONIC_EN)) m
 	.VGA_HB(m_hblank),
 	.VGA_VB(m_vblank),
 	.CE_PIXEL(CE_PIXEL),
+	.native_line_start(native_line_start), .native_frame_start(native_frame_start),
+	.native_width(native_width), .native_height(native_height),
 
 	.AUDIO_L(mac_audio_l),
 	.cd_snd_l(cd_snd_l),
@@ -812,6 +814,18 @@ quadra800 #(.RAM_ADDR_BITS(RAM_ADDR_BITS), .CDROM(CDROM_EN), .SONIC(SONIC_EN)) m
 wire m_hblank, m_vblank;
 assign CLK_VIDEO = clk_vid;
 wire mac_de = ~(m_hblank | m_vblank);
+wire native_line_start, native_frame_start;
+wire [9:0] native_width;
+wire [8:0] native_height;
+`ifdef MAC_TV525_DIAG
+assign TV_NATIVE_RGB = {mac_vga_r,mac_vga_g,mac_vga_b};
+assign TV_NATIVE_DE = mac_de;
+assign TV_NATIVE_LINE = native_line_start;
+assign TV_NATIVE_FRAME = native_frame_start;
+assign TV_NATIVE_WIDTH = native_width;
+assign TV_NATIVE_HEIGHT = native_height;
+assign TV_NATIVE_RESET = !nreset_vid;
+`endif
 
 // Aspect ratio and integer scaling are the framework's: video_freak turns
 // the OSD's Scale choice into the VIDEO_ARX/ARY scaled-size form the

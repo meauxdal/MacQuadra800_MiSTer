@@ -1,5 +1,10 @@
 # CRT 480i diagnostic profile: production integration, 2026-10-07
 
+Continuation: [native framebuffer implementation](CRT-480I-FRAMEBUFFER-20261007.md).
+The user has now qualified the preceding diagnostic output on the Sony CRT.
+The current profile captures the Mac into a buffered canvas; the notes below
+describe the earlier diagnostic-only integration state.
+
 Added in the existing `157CRT` checkout; no commit or worktree. The selected
 profile is now `MAC_TV525_DIAG=1` plus `MISTER_DEBUG_NOHDMI=1`.
 `MAC_384P_TEST` is commented out. Select exactly one CRT test macro.

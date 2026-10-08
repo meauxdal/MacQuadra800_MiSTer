@@ -711,6 +711,38 @@ wire         vbuf_read;
 wire [127:0] vbuf_writedata;
 wire  [15:0] vbuf_byteenable;
 wire         vbuf_write;
+`ifdef MAC_TV525_DIAG
+wire [27:0] scaler_address, tv_store_address;
+wire [7:0] scaler_burstcount, tv_store_burstcount;
+wire [127:0] scaler_writedata, tv_store_writedata, scaler_readdata, tv_store_readdata;
+wire [15:0] scaler_byteenable, tv_store_byteenable;
+wire scaler_read, scaler_write, scaler_waitrequest, scaler_readdatavalid;
+wire tv_store_read, tv_store_write, tv_store_waitrequest, tv_store_readdatavalid;
+wire [23:0] tv_native_rgb;
+wire tv_native_de, tv_native_line, tv_native_frame, tv_native_reset;
+wire [9:0] tv_native_width;
+wire [8:0] tv_native_height;
+(* async_reg="true" *) reg tv_mem_reset_meta=1'b1, tv_mem_reset_sync=1'b1;
+always @(posedge clk_100m) begin
+    tv_mem_reset_meta<=reset; tv_mem_reset_sync<=tv_mem_reset_meta;
+end
+tv_ddr_arbiter tv_vbuf_arbiter (
+    .clk(clk_100m), .inhibit(tv_mem_reset_sync),
+    .a_address(scaler_address), .a_burstcount(scaler_burstcount), .a_writedata(scaler_writedata),
+    .a_byteenable(scaler_byteenable), .a_read(scaler_read), .a_write(scaler_write),
+    .a_waitrequest(scaler_waitrequest), .a_readdatavalid(scaler_readdatavalid), .a_readdata(scaler_readdata),
+    .b_address(tv_store_address), .b_burstcount(tv_store_burstcount), .b_writedata(tv_store_writedata),
+    .b_byteenable(tv_store_byteenable), .b_read(tv_store_read), .b_write(tv_store_write),
+    .b_waitrequest(tv_store_waitrequest), .b_readdatavalid(tv_store_readdatavalid), .b_readdata(tv_store_readdata),
+    .address(vbuf_address), .burstcount(vbuf_burstcount), .writedata(vbuf_writedata),
+    .byteenable(vbuf_byteenable), .read(vbuf_read), .write(vbuf_write),
+    .waitrequest(vbuf_waitrequest), .readdatavalid(vbuf_readdatavalid), .readdata(vbuf_readdata)
+);
+`ifdef MISTER_DEBUG_NOHDMI
+assign scaler_address=0; assign scaler_burstcount=1; assign scaler_writedata=0;
+assign scaler_byteenable=0; assign scaler_read=0; assign scaler_write=0;
+`endif
+`endif
 
 wire  [23:0] hdmi_data;
 wire         hdmi_vs, hdmi_hs, hdmi_de, hdmi_vbl, hdmi_brd;
@@ -831,6 +863,17 @@ wire         bob_deint;
 		.o_fb_stride      (FB_STRIDE),
 
 		.avl_clk          (clk_100m),
+`ifdef MAC_TV525_DIAG
+		.avl_waitrequest  (scaler_waitrequest),
+		.avl_readdata     (scaler_readdata),
+		.avl_readdatavalid(scaler_readdatavalid),
+		.avl_burstcount   (scaler_burstcount),
+		.avl_writedata    (scaler_writedata),
+		.avl_address      (scaler_address),
+		.avl_write        (scaler_write),
+		.avl_read         (scaler_read),
+		.avl_byteenable   (scaler_byteenable)
+`else
 		.avl_waitrequest  (vbuf_waitrequest),
 		.avl_readdata     (vbuf_readdata),
 		.avl_readdatavalid(vbuf_readdatavalid),
@@ -840,6 +883,7 @@ wire         bob_deint;
 		.avl_write        (vbuf_write),
 		.avl_read         (vbuf_read),
 		.avl_byteenable   (vbuf_byteenable)
+`endif
 	);
 `endif
 
@@ -1403,14 +1447,22 @@ assign HDMI_TX_D  = hdmi_out_d;
 		.refclk(FPGA_CLK1_50), .rst(1'b0),
 		.outclk_0(clk_tv525), .locked(tv525_locked)
 	);
-	tv525_platform crt_tv (
+	tv525_platform #(.BUFFERED(1)) crt_tv (
 		.clk_tv(clk_tv525), .clk_sys(clk_sys), .pll_locked(tv525_locked),
 		.io_osd(io_osd_vga), .io_strobe(io_strobe), .io_din(io_din),
 		.av_dis(av_dis), .video_disable(VGA_DISABLE), .osd_status(osd_status),
 		.drive_enable(tv525_drive), .dac_r(tv525_r), .dac_g(tv525_g), .dac_b(tv525_b),
 		.low_r(tv525_low_r), .low_g(tv525_low_g), .low_b(tv525_low_b),
 		.hs_n(tv525_hs_n), .vs_n(tv525_vs_n), .csync_n(tv525_cs_n),
-		.picture_de(tv525_picture_de)
+		.picture_de(tv525_picture_de),
+		.clk_source(clk_vid), .source_reset(tv_native_reset), .source_ce(ce_pix),
+		.source_de(tv_native_de), .source_line(tv_native_line), .source_frame(tv_native_frame),
+		.source_width(tv_native_width), .source_height(tv_native_height), .source_rgb(tv_native_rgb),
+		.clk_mem(clk_100m), .inhibit(tv_mem_reset_sync),
+		.address(tv_store_address), .burstcount(tv_store_burstcount), .writedata(tv_store_writedata),
+		.byteenable(tv_store_byteenable), .read(tv_store_read), .write(tv_store_write),
+		.waitrequest(tv_store_waitrequest), .readdatavalid(tv_store_readdatavalid), .readdata(tv_store_readdata),
+		.published(), .dropped(), .repeated(), .overflows(), .underruns()
 	);
 	`endif
 	wire vga_tx_clk;
@@ -1942,6 +1994,11 @@ emu emu
 	.CLK_VIDEO(clk_vid),
 	.clk_video_half(clk_video_half),
 	.CE_PIXEL(ce_pix),
+`ifdef MAC_TV525_DIAG
+	.TV_NATIVE_RGB(tv_native_rgb), .TV_NATIVE_DE(tv_native_de),
+	.TV_NATIVE_LINE(tv_native_line), .TV_NATIVE_FRAME(tv_native_frame),
+	.TV_NATIVE_WIDTH(tv_native_width), .TV_NATIVE_HEIGHT(tv_native_height), .TV_NATIVE_RESET(tv_native_reset),
+`endif
 	.VGA_SL(scanlines),
 	.VIDEO_ARX(ARX),
 	.VIDEO_ARY(ARY),

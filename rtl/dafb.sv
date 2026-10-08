@@ -70,7 +70,11 @@ module dafb
 	output reg    vga_vs,
 	output        vga_hb,
 	output        vga_vb,
-	output        ce_pixel
+	output        ce_pixel,
+	output reg    native_line_start,
+	output reg    native_frame_start,
+	output [9:0]  native_width,
+	output [8:0]  native_height
 );
 
 //----------------------------------------------------------------------------
@@ -311,6 +315,8 @@ wire [9:0] V_ACT  = mon_v ? 10'd384 : 10'd480;
 wire [9:0] V_FP   = mon_v ? 10'd1   : 10'd10;
 wire [9:0] V_SYNC = mon_v ? 10'd3   : 10'd2;
 wire [9:0] V_TOT  = mon_v ? 10'd407 : 10'd525;
+assign native_width = H_ACT;
+assign native_height = V_ACT[8:0];
 
 reg [9:0] hcnt;
 reg [9:0] vcnt;
@@ -378,6 +384,7 @@ always @(posedge clk_vid) begin
 		shreg <= 0; shcnt <= 0;
 		fetch_addr <= 0; fetch_word <= 0; fpipe <= 0;
 		act_q <= 0;
+		native_line_start <= 0; native_frame_start <= 0;
 		line_base_next <= 0;
 	end
 	else begin
@@ -429,6 +436,9 @@ always @(posedge clk_vid) begin
 		end
 
 		act_q <= hactive && vactive;
+		// Same register edge as CLUT output and active/blank tags.
+		native_line_start <= hcnt==0 && vactive;
+		native_frame_start <= hcnt==0 && vcnt==0;
 	end
 end
 

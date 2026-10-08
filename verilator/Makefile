@@ -146,6 +146,24 @@ tb_mac_interlacer:
 TV525_OUT ?= out/tv525
 TV525_STAGE2_OUT ?= out/tv525_stage2
 TV525_STAGE2_RTL = $(RTL)/tv525_output.sv $(RTL)/tv525_timing.sv $(RTL)/tv_test_pattern.sv $(RTL)/tv_osd.sv $(RTL)/tv_component.sv $(RTL)/tv_component_pins.sv
+TV_FRAME_RTL = $(RTL)/tv_buffered_canvas.sv $(RTL)/tv_frame_store.sv $(RTL)/tv_video_capture.sv $(RTL)/tv_capture_fifo.sv $(RTL)/tv_ddr_arbiter.sv
+.PHONY: tb_tv_frame
+tb_tv_frame:
+	$V --lint-only --Wall -Wno-PINCONNECTEMPTY --top-module tv_frame_pipeline tv_frame_pipeline.sv $(TV525_STAGE2_RTL) $(TV_FRAME_RTL)
+	$V --cc --exe --build -j 4 --Wall -Wno-PINCONNECTEMPTY --top-module tv_frame_pipeline --Mdir ./obj_dir_tb_tv_frame -o tb_tv_frame -CFLAGS "-std=c++17 -O2" tv_frame_pipeline.sv $(TV525_STAGE2_RTL) $(TV_FRAME_RTL) tb_tv_frame.cpp
+	./obj_dir_tb_tv_frame/tb_tv_frame
+.PHONY: tb_tv_dafb
+.PHONY: tb_tv_ddr_arbiter
+tb_tv_ddr_arbiter:
+	$V --cc --exe --build -j 4 --Wall --top-module tv_ddr_arbiter --Mdir ./obj_dir_tb_tv_ddr_arbiter -o tb_tv_ddr_arbiter -CFLAGS "-std=c++17 -O2" $(RTL)/tv_ddr_arbiter.sv tb_tv_ddr_arbiter.cpp
+	./obj_dir_tb_tv_ddr_arbiter/tb_tv_ddr_arbiter
+.PHONY: tb_tv_frame_owner
+tb_tv_frame_owner:
+	$V --binary --timing -j 4 --Wall -Wno-PINCONNECTEMPTY -Wno-BLKSEQ --top-module tb_tv_frame_owner --Mdir ./obj_dir_tb_tv_frame_owner -o tb_tv_frame_owner tb_tv_frame_owner.sv $(RTL)/tv_frame_store.sv
+	./obj_dir_tb_tv_frame_owner/tb_tv_frame_owner
+tb_tv_dafb:
+	$V --cc --exe --build -j 4 -Wno-fatal --top-module tv_dafb_pipeline --Mdir ./obj_dir_tb_tv_dafb -o tb_tv_dafb -CFLAGS "-std=c++17 -O2" tv_dafb_pipeline.sv tv_frame_pipeline.sv $(TV525_STAGE2_RTL) $(TV_FRAME_RTL) $(RTL)/dafb.sv tb_tv_dafb.cpp
+	./obj_dir_tb_tv_dafb/tb_tv_dafb
 .PHONY: tb_tv525_platform
 tb_tv525_platform:
 	$V --lint-only --Wall --top-module tv525_platform $(RTL)/tv525_platform.sv $(TV525_STAGE2_RTL)

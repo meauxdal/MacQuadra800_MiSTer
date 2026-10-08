@@ -91,6 +91,9 @@ module quadra800
 	output            VGA_HB,
 	output            VGA_VB,
 	output            CE_PIXEL,
+	output            native_line_start, native_frame_start,
+	output [9:0]      native_width,
+	output [8:0]      native_height,
 
 	output signed [15:0] AUDIO_L,
 	output signed [15:0] AUDIO_R,
@@ -487,7 +490,9 @@ dafb dafb (
 	.vga_vs(VGA_VS),
 	.vga_hb(VGA_HB),
 	.vga_vb(VGA_VB),
-	.ce_pixel(CE_PIXEL)
+	.ce_pixel(CE_PIXEL),
+	.native_line_start(native_line_start), .native_frame_start(native_frame_start),
+	.native_width(native_width), .native_height(native_height)
 );
 
 //----------------------------------------------------------------------------
