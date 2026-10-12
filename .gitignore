@@ -93,3 +93,4 @@ scripts/guest/*.png
 verilator/sim/mac/
 verilator/run.hda
 rtl/ap68040/tb/build_lx/
+/verilator/out
