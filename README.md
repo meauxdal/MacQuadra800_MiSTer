@@ -2,11 +2,20 @@
 
 A MiSTer FPGA core (DE10-Nano) for the Apple **Macintosh Quadra 800**
 (codename *Wombat*): an authentic 33 MHz 68040 bus, the AP68040 CPU
-(Adam Polkosnik's core with Alan Steremberg's performance work, vendored in `rtl/ap68040/`), 128 MB of SDRAM main memory,
+(Adam Polkosnik's pipelined `faster` branch, vendored in `rtl/ap68040_faster/`), 128 MB of SDRAM main memory,
 DAFB built-in video, NCR 53C96 SCSI with two hard disks and an AppleCD
 CD-ROM (data, audio, TOC), Z8530 SCC serial (MIDI / MT32-pi), ASC/EASC
-sound, ADB via the VIA. It boots Mac OS 7.x / 8.1 and A/UX 3.1, and
-installs Mac OS 8.1 from the retail CD.
+sound, ADB via the VIA. The previous CPU integration boots Mac OS 7.x / 8.1
+and A/UX 3.1 and installs Mac OS 8.1 from the retail CD; the replacement CPU
+is undergoing integration validation.
+
+## CPU migration (2026-10-17)
+
+The active CPU is now AP68040 `faster`, pinned at `ab4d83d`. The default
+FPGA and simulator builds use its native MMU, caches, pipeline, and FPU.
+See [integration and validation](docs/ap68040-faster-integration.md) and
+[source provenance](rtl/ap68040_faster/UPSTREAM.md). Earlier performance,
+area, and OS-boot results below refer to the previous sequential CPU.
 
 The core was called `wombat33` until 2026-09-02. The internal module names
 `wombat_cpu` / `wombat_bus32` / `wombat_store_buffer` are a separate
@@ -75,7 +84,7 @@ hardware comparison below are earlier measured references.
 | `MacQuadra800.{qpf,qsf,sdc,sv}` | the Quartus project; `MacQuadra800.sv` is the MiSTer `emu` top. The `.qsf` **is** the release recipe: its default switches and seed are what ships |
 | `files.qip` | the RTL file list (mirrored in the `.qsf`; add new RTL to both) |
 | `rtl/quadra800.sv` | the machine: address decode, service FSM, ROM overlay, fast paths |
-| `rtl/wombat_cpu.sv`, `rtl/ap68040/` | the CPU wrapper (MMU, cache, store buffer) and the **vendored AP68040** (`rtl/ap68040/UPSTREAM.md`) |
+| `rtl/wombat_cpu_ap68040.sv`, `rtl/wombat_ap68040_bus.sv`, `rtl/ap68040_faster/` | the CPU wrapper (MMU, cache, store buffer) and the **vendored AP68040** (`rtl/ap68040/UPSTREAM.md`) |
 | `rtl/sdram*.sv`, `rtl/wombat_bus32.sv`, `rtl/wombat_store_buffer.sv` | open-page BL8 SDRAM at 99 MHz, the 33/99 MHz beat bridge, the write queue |
 | `rtl/ncr53c96.sv`, `rtl/cd_audio.sv`, `rtl/scsi_cache.sv` | SCSI: the 53C96 with disks + AppleCD, the CD TOC/audio engine, the block cache in front of hps_io |
 | `rtl/iosb.sv`, `rtl/scc.v`, `rtl/via6522.sv`, `rtl/asc*.sv`, `rtl/dafb*.sv` | I/O, serial, ADB, sound, video |

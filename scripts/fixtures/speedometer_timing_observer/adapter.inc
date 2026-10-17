@@ -6,6 +6,7 @@ static std::string speedometer_path;
 static uint64_t speedometer_limit=512;
 static std::ofstream speedometer_file;
 static std::unique_ptr<speedometer::Observer> speedometer_observer;
+#ifndef Q800_AP68040
 #define SPEED_CORE(field) SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__##field
 #define SPEED_CPU(field) SIMEMU->__PVT__machine__DOT__cpu__DOT__##field
 static speedometer::Context speedometer_context() {
@@ -59,3 +60,8 @@ static void speedometer_after_eval(bool dispatch) {
 }
 #undef SPEED_CORE
 #undef SPEED_CPU
+
+#else
+static void speedometer_before_eval() {}
+static void speedometer_after_eval(bool) {}
+#endif

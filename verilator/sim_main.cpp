@@ -38,6 +38,22 @@
 // sim.v keeps its own module class (the public arrays force it), so its
 // internals live under rootp->emu rather than flattened into root.
 #define SIMEMU (top->rootp->emu)
+#ifdef Q800_AP68040
+#define CPU_PC (VERTOPINTERN->debug_pc)
+#define CPU_CACR (SIMEMU->cpu_cacr)
+#define CPU_TC (SIMEMU->cpu_tc)
+#define CPU_URP (SIMEMU->cpu_urp)
+#define CPU_SRP (SIMEMU->cpu_srp)
+#define CPU_REGS (SIMEMU->cpu_regs)
+#else
+#define CPU_PC (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i)
+#define CPU_CACR (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__cacr)
+#define CPU_TC (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__tc)
+#define CPU_URP (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__urp)
+#define CPU_SRP (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__srp)
+#define CPU_REGS (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a)
+#endif
+
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "sim/stb_image_write.h"
@@ -245,9 +261,9 @@ static void bracket_dump() {
 	// the complete bracket even if guest software changes CACR/TC within it.
 	fprintf(f, "CONFIG_END\tpc\tcacr\ttc\n");
 	fprintf(f, "CONFIG_END\t%08X\t%08X\t%08X\n",
-	        SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i,
-	        SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__cacr,
-	        SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__tc);
+	        CPU_PC,
+	        CPU_CACR,
+	        CPU_TC);
 	fprintf(f, "ENABLED_CYCLES\tic\tdc\tmmu\n");
 	fprintf(f, "ENABLED_CYCLES\t%llu\t%llu\t%llu\n",
 	        (unsigned long long)bracket_ic_enabled,
@@ -364,6 +380,7 @@ static void bracket_step(bool dispatch) {
 	}
 	if (action == CpuProfileGate::Stop) { bracket_dump(); return; }
 	if (action == CpuProfileGate::Skip) return;
+#ifndef Q800_AP68040
 	uint8_t state=SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__state;
 	uint16_t ir=SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__ir;
 	uint8_t cst=SIMEMU->__PVT__machine__DOT__cpu__DOT__g_cache__DOT__cache__DOT__cst;
@@ -392,10 +409,10 @@ static void bracket_step(bool dispatch) {
 		bracket_prev_cst = cst&7;
 	}
 	if (SIMEMU->__PVT__machine__DOT__cpu__DOT__g_cache__DOT__cache__DOT__rd_accept) bracket_rd_accept++;
-	const uint32_t cacr = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__cacr;
+	const uint32_t cacr = CPU_CACR;
 	bracket_ic_enabled += (cacr >> 15) & 1;
 	bracket_dc_enabled += (cacr >> 31) & 1;
-	bracket_mmu_enabled += (SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__tc >> 15) & 1;
+	bracket_mmu_enabled += (CPU_TC >> 15) & 1;
 	if (SIMEMU->__PVT__machine__DOT__cpu__DOT__g_cache__DOT__cache__DOT__look_hit) bracket_look_hit++;
 	if (SIMEMU->__PVT__machine__DOT__cpu__DOT__g_cache__DOT__cache__DOT__ipred_hit) bracket_ipred_hit++;
 	// The continuously sampled opcode-load toggle handles bypassed decode,
@@ -404,7 +421,7 @@ static void bracket_step(bool dispatch) {
 		bracket_dispatches++;
 		bracket_opcodes[ir]++;
 		if ((ir & 0xFF00) == 0xF400) {
-			const uint32_t pc = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i;
+			const uint32_t pc = CPU_PC;
 			const uint32_t a7 = VERTOPINTERN->debug_a7;
 			const uint32_t ret = ((a7 >> 2) < sizeof(SIMEMU->ram) / sizeof(SIMEMU->ram[0])) ? SIMEMU->ram[a7 >> 2] : 0;
 			bracket_f4_sites[((uint64_t)ir << 32) | pc]++;
@@ -416,6 +433,7 @@ static void bracket_step(bool dispatch) {
 		if (bracket_prev_valid) bracket_transitions[bracket_prev_state][state]++;
 		bracket_prev_state=state; bracket_prev_valid=true;
 	}
+#endif
 }
 
 // ---- ADB mouse from clicks on the VGA image -------------------------------
@@ -454,10 +472,10 @@ static void control_before_eval() {
             printf("[RAM-SNAPSHOT] %s %s bytes=%llu cycle=%llu pc=%08X tc=%08X urp=%08X srp=%08X\n",
                 ok ? "wrote" : "FAILED", path, (unsigned long long)(command.value << 20),
                 (unsigned long long)main_time,
-                SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i,
-                SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__tc,
-                SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__urp,
-                SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__srp);
+                CPU_PC,
+                CPU_TC,
+                CPU_URP,
+                CPU_SRP);
             break;
         }
 		case SimControlCommand::Quit:
@@ -628,8 +646,14 @@ int verilate() {
 			}
 			if (clk_sys.clk) speedometer_before_eval();
 			top->eval();
-			if (clk_sys.clk) dispatched = dispatch_observer.sample(VERTOPINTERN->reset,
-				SIMEMU->machine__DOT__cpu__DOT__core__DOT__perf_dispatch_toggle);
+			if (clk_sys.clk) {
+#ifdef Q800_AP68040
+                dispatched = !VERTOPINTERN->reset && SIMEMU->cpu_retire;
+#else
+                dispatched = dispatch_observer.sample(VERTOPINTERN->reset,
+                    SIMEMU->machine__DOT__cpu__DOT__core__DOT__perf_dispatch_toggle);
+#endif
+            }
 			if (clk_sys.clk && !scsi_disk_file.empty()) blockdevice.AfterEval();
 			if (clk_sys.clk && !VERTOPINTERN->reset) {
 				machine_events();
@@ -637,6 +661,7 @@ int verilate() {
 				bracket_step(dispatched);
 				if (!cpu_trace_disabled && (main_time >= trace_after ||
 				                            (trace_on_ncr && NCR_REGTRACE))) cpu_trace_step();
+#ifndef Q800_AP68040
 				// [EXC] every exception entry that is not an A-line trap or an
 				// interrupt: vector, faulting/next pc, format, fault address
 				{
@@ -650,13 +675,15 @@ int verilate() {
 							       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__exc_fmt,
 							       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__exc_spc,
 							       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__exc_addr,
-							       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i,
+							       CPU_PC,
 							       (unsigned long long)main_time);
 					}
 					exc_prev_state = st;
 				}
-				uint32_t hpc = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i;
+#endif
+				uint32_t hpc = CPU_PC;
 				if (pc_hist_enable) pc_hist[hpc >> 8]++;
+#ifndef Q800_AP68040
 				if (cpu_prof_enable) {
 					uint8_t st = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__state;
 					prof_state[st]++;
@@ -694,6 +721,7 @@ int verilate() {
 						}
 					}
 				}
+#endif
 				{
 					// RAM write watchpoints: DrvQHdr + the DrvQEl at $B94E
 					static const uint32_t watch_addr[] =
@@ -720,8 +748,8 @@ int verilate() {
 					       (unsigned long long)main_time);
 					for (int r = 0; r < 8; r++)
 						printf("[STOP] d%d=%08X a%d=%08X\n", r,
-						       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a[r], r,
-						       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a[8 + r]);
+						       CPU_REGS[r], r,
+						       CPU_REGS[8 + r]);
 					printf("[STOP] DSErrCode($AF0)=%04X\n",
 					       SIMEMU->ram[0x0AF0 >> 2] >> 16);
 					{
@@ -759,8 +787,8 @@ int verilate() {
 					next_heartbeat += heartbeat_every;
 					printf("[HB] cycle=%llu pc=%08X instr=%ld a3=%08X d7=%08X\n",
 					       (unsigned long long)main_time, hpc, cpu_trace_count,
-					       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a[8 + 3],
-					       SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a[7]);
+					       CPU_REGS[8 + 3],
+					       CPU_REGS[7]);
 					if (cpu_prof_enable) cpu_prof_print();
 					fflush(stdout);
 				}
@@ -811,7 +839,7 @@ static uint16_t sim_read_word(uint32_t addr) {
 
 // One trace line per instruction dispatch: pc_i changed inside the core.
 static void cpu_trace_step() {
-	uint32_t pc = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i;
+	uint32_t pc = CPU_PC;
 	if (pc == cpu_trace_last_pc) return;
 	cpu_trace_last_pc = pc;
 
@@ -944,6 +972,12 @@ int main(int argc, char** argv, char** env) {
 		}
 	}
 
+#ifdef Q800_AP68040
+    if (cpu_prof_enable || !bracket_file.empty() || !speedometer_path.empty()) {
+        fprintf(stderr, "Legacy CPU profiling is unavailable with AP68040 faster; use LEGACY_CPU=1 for historical measurements.\n");
+        return 1;
+    }
+#endif
     if (!speedometer_path.empty()) {
         speedometer_file.open(speedometer_path);
         if (!speedometer_file) { fprintf(stderr, "cannot open observer output\n"); return 1; }
@@ -1072,12 +1106,12 @@ int main(int argc, char** argv, char** env) {
 			ImGui::SetWindowPos("Machine", ImVec2(0, 240), ImGuiCond_Once);
 			ImGui::SetWindowSize("Machine", ImVec2(500, 330), ImGuiCond_Once);
 			{
-				uint32_t pc  = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__pc_i;
+				uint32_t pc  = CPU_PC;
 				uint16_t ir  = VERTOPINTERN->debug_opcode;
 				uint16_t sr  = VERTOPINTERN->debug_sr;
 				// the MLAB regfile (2026-09-17): one bank, D0-D7 then A0-A7
-				auto &ds = SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a;
-				auto *as = &SIMEMU->__PVT__machine__DOT__cpu__DOT__core__DOT__regfile__DOT__bank_a[8];
+				auto &ds = CPU_REGS;
+				auto *as = &CPU_REGS[8];
 				ImGui::Text("Quadra 800 — 68040 @ 33 MHz, 32 MB RAM, 1 MB ROM, 1 MB VRAM");
 				ImGui::Text("640x480, 256 colors max (DAFB II)");
 				ImGui::Text("overlay=%d  cycle=%llu  instr=%ld",

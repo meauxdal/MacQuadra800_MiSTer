@@ -250,11 +250,33 @@ quadra800 #(.RAM_ADDR_BITS(RAM_ADDR_BITS), .SONIC(0)) machine (
 	.eth_mem_rdata(64'd0)
 );
 
+`ifdef Q800_LEGACY_CPU
 assign debug_pc          = m_debug_status[31:0];
 assign debug_opcode      = m_debug_status[63:48];
 assign debug_sr          = m_debug_status[47:32];
 assign debug_a7          = m_debug_status[95:64];
 assign debug_fetch_valid = ~reset;
+
+`else
+// Stable simulator taps for the pipelined CPU; no synthesis changes to upstream.
+wire [31:0] cpu_cacr /*verilator public_flat*/ = machine.cpu.core.cacr;
+wire [31:0] cpu_tc /*verilator public_flat*/ = machine.cpu.core.tc;
+wire [31:0] cpu_urp /*verilator public_flat*/ = machine.cpu.core.urp;
+wire [31:0] cpu_srp /*verilator public_flat*/ = machine.cpu.core.srp;
+wire cpu_retire /*verilator public_flat*/ = machine.cpu.retire;
+reg [31:0] cpu_regs [0:31] /*verilator public*/;
+initial for (integer i=0; i<32; i=i+1) cpu_regs[i]=0;
+always @(posedge clk_sys) begin
+    for (integer w=0; w<2; w=w+1)
+        if (machine.cpu.core.be.bwe[w])
+            cpu_regs[machine.cpu.core.be.bwa[w]] <= machine.cpu.core.be.bwd[w];
+end
+assign debug_pc = m_debug_status[31:0];
+assign debug_sr = machine.cpu.core.sr;
+assign debug_a7 = !debug_sr[13] ? cpu_regs[15] : debug_sr[12] ? cpu_regs[17] : cpu_regs[16];
+assign debug_opcode = 16'd0; // Trace disassembly reads the instruction at debug_pc.
+assign debug_fetch_valid = cpu_retire;
+`endif
 
 //----------------------------------------------------------------------------
 // Platform memory: plain arrays behind the beat port (see quadra800.sv for

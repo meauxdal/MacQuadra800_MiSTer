@@ -328,6 +328,15 @@ wombat_cpu cpu (
 	.walker_data(walker_data),
 	.walker_berr(walker_berr),
 
+`ifndef Q800_LEGACY_CPU
+    .dma_req(sonic_dma_req), .dma_write(dma_we),
+    .dma_addr({5'd0, dma_addr}), .dma_be(dma_be), .dma_wdata(dma_wdata),
+    .dma_snoop_enable((SONIC_SNOOP != 0) && !dbg_sw[2]),
+    .dma_ack(sonic_dma_ack), .dma_rdata(sonic_dma_rdata),
+    .dma_mem_req(dma_req), .dma_mem_write(), .dma_mem_addr(),
+    .dma_mem_be(dma_service_be), .dma_mem_wdata(),
+    .dma_mem_ack(dma_ack), .dma_mem_rdata(dma_rdata),
+`endif
 	.snoop_stb(snoop_stb),
 	.snoop_addr({5'd0, dma_beat_addr, 2'b00}),
 
@@ -551,6 +560,15 @@ reg        svc_dma;                           // ... or the SONIC's DMA engine
 // and they go through the ordinary RAM port, so sdram_beat32 drops its retained
 // line on a DMA write exactly as it does on a CPU write.
 wire        dma_req, dma_we;
+wire        sonic_dma_req, sonic_dma_ack;
+wire [31:0] sonic_dma_rdata;
+wire [3:0] dma_service_be;
+`ifdef Q800_LEGACY_CPU
+assign dma_req = sonic_dma_req;
+assign sonic_dma_ack = dma_ack;
+assign sonic_dma_rdata = dma_rdata;
+assign dma_service_be = dma_be;
+`endif
 wire [26:2] dma_addr;
 wire  [3:0] dma_be;
 wire [31:0] dma_wdata;
@@ -815,7 +833,7 @@ always @(posedge clk) begin
 					mem_req    <= 1;
 					mem_write  <= dma_we;
 					mem_addr   <= {5'd0, dma_addr};
-					mem_be     <= dma_be;
+					mem_be     <= dma_service_be;
 					mem_wdata  <= dma_wdata;
 					mem_memsel <= MSEL_RAM;
 					svc        <= S_MEM;
@@ -975,7 +993,7 @@ always @(posedge clk) begin
 					mem_req    <= 1;
 					mem_write  <= dma_we;
 					mem_addr   <= {5'd0, dma_addr};
-					mem_be     <= dma_be;
+					mem_be     <= dma_service_be;
 					mem_wdata  <= dma_wdata;
 					mem_memsel <= MSEL_RAM;
 				end
@@ -1083,13 +1101,13 @@ if (SONIC != 0) begin : g_sonic
 		.irq(sonic_irq),
 		.cpu_sample(debug_status[47:0]),
 
-		.dma_req(dma_req),
+		.dma_req(sonic_dma_req),
 		.dma_we(dma_we),
 		.dma_addr(dma_addr),
 		.dma_be(dma_be),
 		.dma_wdata(dma_wdata),
-		.dma_ack(dma_ack),
-		.dma_rdata(dma_rdata),
+		.dma_ack(sonic_dma_ack),
+		.dma_rdata(sonic_dma_rdata),
 
 		.mem_addr(eth_mem_addr),
 		.mem_rd(eth_mem_rd),
@@ -1105,7 +1123,7 @@ else begin : g_no_sonic
 	assign sonic_irq     = 1'b0;
 	assign sonic_ack     = 1'b0;
 	assign sonic_rdata   = 32'd0;
-	assign dma_req       = 1'b0;
+	assign sonic_dma_req = 1'b0;
 	assign dma_we        = 1'b0;
 	assign dma_addr      = 25'd0;
 	assign dma_be        = 4'd0;

@@ -5,7 +5,9 @@ V = verilator
 TOP = --top-module emu
 RTL = ../rtl
 AP  = ../rtl/ap68040/rtl
-V_INC = +incdir+$(RTL) +incdir+$(AP) -I$(AP)
+FASTER = ../rtl/ap68040_faster/rtl
+LEGACY_CPU ?= 0
+V_INC = +incdir+$(RTL)
 
 # mirror of ../Main_MiSTer/support/mac (scripts/sync_main_mac.sh): the CD
 # response builders and playhead the sims serve the CD slot's windows with
@@ -36,7 +38,11 @@ endif
 
 CFLAGS += -Iimgui
 LDFLAGS = $(LIBS)
-EXE = ./obj_dir/Vemu
+OBJDIR = obj_dir
+ifeq ($(LEGACY_CPU),1)
+OBJDIR = obj_dir_legacy
+endif
+EXE = ./$(OBJDIR)/Vemu
 # --unroll-count: ap040_mmu.v clears the 128 ATC valid flops with a for loop of
 # delayed assignments (PFLUSHA, reset); above Verilator's default of 64 the loop
 # is not unrolled and the assignment is silently dropped (BLKLOOPINIT, which the
@@ -53,7 +59,6 @@ V_SRC = \
 	$(RTL)/cos.sv \
 	sim_lfsr.v \
 	$(RTL)/quadra800.sv \
-	$(RTL)/wombat_cpu.sv \
 	$(RTL)/wombat_store_buffer.sv \
 	$(RTL)/wombat_bus32.sv \
 	$(RTL)/iosb.sv \
@@ -69,6 +74,12 @@ V_SRC = \
 	$(RTL)/scc.v \
 	$(RTL)/uart/txuart.v \
 	$(RTL)/uart/rxuart.v \
+	$(RTL)/dpram.v
+
+ifeq ($(LEGACY_CPU),1)
+V_INC += +incdir+$(AP) -I$(AP)
+V_DEFINE += +define+Q800_LEGACY_CPU=1
+V_SRC += \
 	$(AP)/ap040_core.v \
 	$(RTL)/ap68040/experimental/ap040_pipeline_integer.sv \
 	$(AP)/ap040_bus_timeout.v \
@@ -78,7 +89,15 @@ V_SRC = \
 	$(AP)/ap040_mmu.v \
 	$(AP)/ap040_cache.v \
 	$(AP)/ap040_fpu.v \
-	$(RTL)/dpram.v
+	$(RTL)/wombat_cpu.sv
+
+else
+V_INC += -I$(FASTER) -I$(FASTER)/fpu
+V_DEFINE += -CFLAGS "-DQ800_AP68040=1"
+V_SRC := $(FASTER)/ap68040_pkg.sv $(FASTER)/gen/ap68040_upkg.sv $(V_SRC)
+V_SRC += $(filter-out $(FASTER)/ap68040_pkg.sv,$(wildcard $(FASTER)/*.sv)) \
+    $(FASTER)/fpu/ap040_fpu.v $(RTL)/wombat_cpu_ap68040.sv $(RTL)/wombat_ap68040_bus.sv
+endif
 
 C_SRC = \
 	sim_main.cpp \
@@ -91,12 +110,15 @@ C_SRC = \
 	sim/imgui/imgui_tables.cpp sim/imgui/imgui.cpp \
 	sim/imgui/ImGuiFileDialog.cpp sim/imgui/implot.cpp sim/imgui/implot_items.cpp
 
-VOUT = obj_dir/Vemu.cpp
+VOUT = $(OBJDIR)/Vemu.cpp
 
 all: $(EXE) quadra800.rom.hex
 
+ROM ?= $(firstword $(wildcard ../releases/boot0.rom ../releases/quadra800.rom))
+
 # ROM image as $readmemh words (big-endian: file order = byte order)
-quadra800.rom.hex: ../releases/quadra800.rom
+quadra800.rom.hex: $(ROM)
+	@test -n "$(ROM)" || { echo "Set ROM=/path/to/Q800.rom"; exit 1; }
 	xxd -p -c4 $< > $@
 
 # sim-only fast-boot ROM: NOP the RAM-test warm gate at file offset
@@ -110,18 +132,18 @@ quadra800-fastboot.rom.hex: ../releases/quadra800.rom ../docs/tools/make-fastboo
 
 SIM_HEADERS = sim_control.h cpu_dispatch_observer.h sim_refill_profile.h sim_ram_snapshot.h ../scripts/fixtures/speedometer_timing_observer/adapter.inc ../scripts/fixtures/speedometer_timing_observer/speedometer_observer.h
 $(VOUT): $(V_SRC) $(C_SRC) $(SIM_HEADERS) Makefile
-	$V -cc $(V_OPT) -LDFLAGS "$(LDFLAGS)" -exe --trace --Mdir ./obj_dir \
+	$V -cc $(V_OPT) -LDFLAGS "$(LDFLAGS)" -exe --trace --Mdir ./$(OBJDIR) \
 		$(V_DEFINE) $(V_INC) $(TOP) -CFLAGS "$(CFLAGS)" $(V_SRC) $(C_SRC)
 	@touch $(VOUT)
 
 $(EXE): $(VOUT) $(SIM_HEADERS)
 	@# verilator's Vemu.mk has no dep tracking for our C sources: evict
 	@# any object older than its source before the inner make.
-	@for f in $(C_SRC); do o=obj_dir/$$(basename $${f%.*}).o; \
-		[ -e $$o ] && [ $$f -nt $$o ] && rm -f $$o obj_dir/Vemu || true; done
+	@for f in $(C_SRC); do o=$(OBJDIR)/$$(basename $${f%.*}).o; \
+		[ -e $$o ] && [ $$f -nt $$o ] && rm -f $$o $(OBJDIR)/Vemu || true; done
 	@for f in $(SIM_HEADERS); do \
-		[ -e obj_dir/sim_main.o ] && [ $$f -nt obj_dir/sim_main.o ] && rm -f obj_dir/sim_main.o || true; done
-	$(MAKE) -C obj_dir -f Vemu.mk
+		[ -e $(OBJDIR)/sim_main.o ] && [ $$f -nt $(OBJDIR)/sim_main.o ] && rm -f $(OBJDIR)/sim_main.o || true; done
+	$(MAKE) -C $(OBJDIR) -f Vemu.mk
 
 # Directed benches (each `make <name>` builds and runs one; none needs a ROM or
 # a disk): tb_easc tb_sonic_mbx tb_sdram tb_scsi_cache tb_scsi_cache_mbcd

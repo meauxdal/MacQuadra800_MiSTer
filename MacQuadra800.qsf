@@ -54,7 +54,10 @@ set_global_assignment -name REMOVE_REDUNDANT_LOGIC_CELLS ON
 set_global_assignment -name AUTO_DELAY_CHAINS_FOR_HIGH_FANOUT_INPUT_PINS ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA ON
 set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP ON
-set_global_assignment -name SYNTH_GATED_CLOCK_CONVERSION ON
+# Pack native CPU cache byte lanes into byte-enabled M10Ks.
+set_global_assignment -name VERILOG_MACRO "AP68040_ALTERA_RAM=1"
+# Native CPU RAMs use ordinary synchronous enables. Keep the clocks intact.
+set_global_assignment -name SYNTH_GATED_CLOCK_CONVERSION OFF
 set_global_assignment -name PRE_MAPPING_RESYNTHESIS ON
 set_global_assignment -name ROUTER_CLOCKING_TOPOLOGY_ANALYSIS ON
 set_global_assignment -name ECO_OPTIMIZE_TIMING ON
@@ -606,21 +609,21 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ADAPTIVE=1"
 # 26 routed at -14.477 ns (unusable); 23 FAILED; 29 FAILED; seed 28 routes: 38,967 ALMs, 464 RAM blocks, CPU clock -2.165 ns (ctag_ram ->
 # core), HDMI +0.123, clk_ram +0.602, crossings met.  md5 9e95e885a2567a53a1fa8e43a1a4d24d.  SEED 28 kept.
 # Posted cross-line cache-store merge, validated on hardware.
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_XSTORE=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_XSTORE=1"
 # Overlap LEA displacement fetch with base selection; checked independently.
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_LEA=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_LEA=1"
 # P6 candidate: broaden the resident integer/memory stream at authentic 33 MHz.
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE=1"
 # Seqmem full fit cost 30 more ALMs; restore pipeline loads/stores.
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_LOADS=1"
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_STORES=1"
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_PEA=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_LOADS=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_STORES=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_PEA=1"
 # P6 memory-entry trial: avoid unrestricted entry's measured Mix regression.
-set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_P6=1"
-set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_MEMORY_ENTRY=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_EXPERIMENTAL_PIPELINE_P6=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_MEMORY_ENTRY=1"
 # P7 compare trial: indexed CMP/TST plus final-WB legacy handoff.
-set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_COMPARE=1"
-set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_EARLY_DRAIN=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_COMPARE=1"
+# Legacy CPU setting (inactive): set_global_assignment -name VERILOG_MACRO "AP040_PIPELINE_EARLY_DRAIN=1"
 set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_SHADOWMASK=1"
 set_global_assignment -name VERILOG_MACRO "SCSI_CACHE_OFF=1"
 set_global_assignment -name VERILOG_MACRO "MISTER_BYPASS_AUDIO_FILTER=1"
@@ -643,7 +646,6 @@ set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
-set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
 set_location_assignment PIN_U9 -to ADC_CONVST
 set_location_assignment PIN_V10 -to ADC_SCK
@@ -800,9 +802,9 @@ set_global_assignment -name QIP_FILE sys/sys.qip
 set_global_assignment -name QIP_FILE rtl/pll.qip
 set_global_assignment -name SDC_FILE MacQuadra800.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE MacQuadra800.sv
-set_global_assignment -name QIP_FILE rtl/ap68040/rtl/ap040.qip
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/ap68040/experimental/ap040_pipeline_integer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_cpu.sv
+set_global_assignment -name QIP_FILE rtl/ap68040_faster/rtl/ap68040.qip
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_cpu_ap68040.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_ap68040_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_store_buffer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_bus32.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra800.sv
@@ -968,3 +970,5 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/sdram_beat32.sv
 
 # P106 seed23 (70debea):39617ALMs,CPU+.117ns,HDMI+.029ns,RAM+.371ns;
 # alltimingmet. P108b qualified d16 destination acknowledgement; retainseed23.
+
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top

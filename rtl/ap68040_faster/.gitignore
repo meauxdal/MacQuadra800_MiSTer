@@ -1,0 +1,8 @@
+tb/build/
+*.vvp
+*.hex
+*.bin
+obj/
+tb/build/
+tb/tools/__pycache__/
+syn/*/

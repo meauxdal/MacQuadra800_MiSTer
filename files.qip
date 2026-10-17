@@ -2,9 +2,9 @@ set_global_assignment -name SDC_FILE MacQuadra800.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE MacQuadra800.sv
 set_global_assignment -name QIP_FILE rtl/pll.qip
 set_global_assignment -name VERILOG_FILE rtl/pll_video.v
-set_global_assignment -name QIP_FILE rtl/ap68040/rtl/ap040.qip
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/ap68040/experimental/ap040_pipeline_integer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_cpu.sv
+set_global_assignment -name QIP_FILE rtl/ap68040_faster/rtl/ap68040.qip
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_cpu_ap68040.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_ap68040_bus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_store_buffer.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/wombat_bus32.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra800.sv

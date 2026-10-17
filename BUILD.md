@@ -1,5 +1,10 @@
 # Building the MacQuadra800 core
 
+The default CPU is the pinned AP68040 `faster` integration. See
+[CPU integration](docs/ap68040-faster-integration.md) for its tests, options,
+and outstanding release gates. Previous utilization/timing numbers below
+are historical and do not establish this candidate's fit.
+
 There are two ways to build the FPGA core: the Quartus GUI, or the scripted CLI flow
 in `scripts/`. This document covers the **CLI flow** — repeatable, headless-friendly,
 and core-agnostic (the same `build_only.sh` works in other MiSTer core repos with no
