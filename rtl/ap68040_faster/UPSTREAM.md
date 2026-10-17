@@ -19,6 +19,12 @@ Local changes to upstream:
   64x22 test. The separate-process form uses 58 registers and 1,408 block
   memory bits, retaining the existing explicit read bypasses. Same-address
   simultaneous RAM writes remain unsupported by the physical memory.
+  The Q800 `.qsf` also enables `AP68040_ALTERA_RAM`: `ap68040_sdp_be`
+  uses explicit byte-enabled M10Ks instead of separate inferred byte RAMs.
+  Each slice keeps the original registered-read latency, optional output
+  register/enable, and old-data behavior on a simultaneous read/write.
+  Other builds retain the inferred implementation unless they enable this
+  macro. Intel-model equivalence checks cover both implementations.
 * `tb/tb_ap68040.sv`: mark the completion result and halt-status variables
   `verilator public_flat`. Verilator 5.032 otherwise localized `result`
   into separate generated C++ functions: the CPU wrote the pass signature,

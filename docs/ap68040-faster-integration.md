@@ -119,3 +119,26 @@ Local logs: `scratch/ap68040_faster_upstream/results.log`,
 `scratch/ap68040_faster_sim_build.log`,
 `scratch/ap68040_faster_boot_long.log`, and
 `quartus_build_ap68040_faster_{map,fit}.log`.
+
+## Combinational-resource overflow follow-up
+
+The initial candidate failed fitting with 90,342 combinational nodes against
+the device's 83,820-node limit. Passing Analysis & Synthesis did not establish
+that the design would fit.
+
+The CPU's inferred byte-enabled memories appeared as separate byte-wide
+RAMs. Q800 now enables `AP68040_ALTERA_RAM=1` in its `.qsf` to implement
+these as explicit byte-enabled M10K slices. An isolated 64x32 slice fits in
+one M10K. The normal portable simulation path remains available.
+
+`bash scripts/test_ap68040_ram.sh` checks the inferred and Intel-model
+implementations against a reference memory. The twelve configurations cover
+1/2/3/4/16-byte words, both output-register options, both CPU cache depths,
+partial writes, read/write collisions, and output clock enables. Both
+implementations pass. Set `QUARTUS_SIM_LIB` to the installed
+`quartus/eda/sim_lib/altera_mf.v` when using another installation path.
+
+The full Q800 rebuild with packed RAM was stopped at the user's request.
+The user will start the next FPGA build. The full-core resource reduction
+and timing are not yet verified; the earlier synthesis result and test
+results above predate this packed-RAM synthesis option.

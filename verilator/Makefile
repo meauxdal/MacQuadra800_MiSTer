@@ -121,12 +121,12 @@ quadra800.rom.hex: $(ROM)
 	@test -n "$(ROM)" || { echo "Set ROM=/path/to/Q800.rom"; exit 1; }
 	xxd -p -c4 $< > $@
 
-# sim-only fast-boot ROM: NOP the RAM-test warm gate at file offset
-# $47344 (docs/quadra800-ram-test.md) so the ~1.5G-cycle pattern test
-# is skipped; run with +rom=quadra800-fastboot.rom.hex
+# Diagnostic ROM only: branch to the ROM's existing warm RAM-test exit
+# and repair its checksum. Release validation uses the original ROM.
+# Run with +rom=quadra800-fastboot.rom.hex.
 fastboot: quadra800-fastboot.rom.hex
-quadra800-fastboot.rom.hex: ../releases/quadra800.rom ../docs/tools/make-fastboot-rom.sh
-	sh ../docs/tools/make-fastboot-rom.sh $< .fastboot.tmp.rom
+quadra800-fastboot.rom.hex: $(ROM) ../scripts/prepare_ap68040_boot_rom.py
+	python3 ../scripts/prepare_ap68040_boot_rom.py $< .fastboot.tmp.rom
 	xxd -p -c4 .fastboot.tmp.rom > $@
 	rm .fastboot.tmp.rom
 

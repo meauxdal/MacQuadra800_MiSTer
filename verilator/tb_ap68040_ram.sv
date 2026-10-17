@@ -30,7 +30,7 @@ done=1;
 end
 endmodule
 module tb_ap68040_ram;
-wire [9:0] done;
+wire [11:0] done;
 check_ram #(.NB(1),.OREG(0)) a(done[0]);
 check_ram #(.NB(1),.OREG(1)) b(done[1]);
 check_ram #(.NB(2),.OREG(0)) c(done[2]);
@@ -41,6 +41,8 @@ check_ram #(.NB(16),.OREG(0)) g(done[6]);
 check_ram #(.NB(16),.OREG(1)) h(done[7]);
 check_ram #(.NB(16),.OREG(0),.AW(8)) i(done[8]);
 check_ram #(.NB(16),.OREG(1),.AW(8)) j(done[9]);
+check_ram #(.NB(3),.OREG(0)) k(done[10]);
+check_ram #(.NB(3),.OREG(1)) l(done[11]);
 initial begin wait(&done); $display("PASS AP68040 RAM byte enables and read latency");$finish;end
 initial begin #20000;$fatal(1,"timeout");end
 endmodule

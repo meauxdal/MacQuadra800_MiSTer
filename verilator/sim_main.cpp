@@ -642,7 +642,7 @@ int verilate() {
 			if (clk_sys.clk) {
 				control_before_eval();
 				input.BeforeEval();
-				if (!scsi_disk_file.empty()) blockdevice.BeforeEval(main_time);
+				if (!scsi_disk_file.empty() || !scsi_cd_file.empty()) blockdevice.BeforeEval(main_time);
 			}
 			if (clk_sys.clk) speedometer_before_eval();
 			top->eval();
@@ -654,7 +654,7 @@ int verilate() {
                     SIMEMU->machine__DOT__cpu__DOT__core__DOT__perf_dispatch_toggle);
 #endif
             }
-			if (clk_sys.clk && !scsi_disk_file.empty()) blockdevice.AfterEval();
+			if (clk_sys.clk && (!scsi_disk_file.empty() || !scsi_cd_file.empty())) blockdevice.AfterEval();
 			if (clk_sys.clk && !VERTOPINTERN->reset) {
 				machine_events();
 				speedometer_after_eval(dispatched);

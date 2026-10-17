@@ -276,6 +276,75 @@ assign debug_sr = machine.cpu.core.sr;
 assign debug_a7 = !debug_sr[13] ? cpu_regs[15] : debug_sr[12] ? cpu_regs[17] : cpu_regs[16];
 assign debug_opcode = 16'd0; // Trace disassembly reads the instruction at debug_pc.
 assign debug_fetch_valid = cpu_retire;
+
+// +bootdiag distinguishes CPU exceptions/software restarts from a machine
+// reset. Keep this in the simulator: no changes to the FPGA debug interface.
+reg bootdiag;
+reg [63:0] bootdiag_cycle = 0;
+reg bootdiag_reset = 0;
+reg [31:0] bootdiag_history [0:15];
+reg [3:0] bootdiag_head = 0;
+reg [127:0] bootdiag_ttr = 0;
+integer bootdiag_pdma_reads = 0;
+integer bootdiag_pdma_writes = 0;
+initial bootdiag = $test$plusargs("bootdiag");
+always @(posedge clk_sys) begin
+    bootdiag_cycle <= bootdiag_cycle + 1;
+    bootdiag_reset <= reset;
+    bootdiag_ttr <= {machine.cpu.core.itt0, machine.cpu.core.itt1,
+                     machine.cpu.core.dtt0, machine.cpu.core.dtt1};
+    if (bootdiag) begin
+        if (reset != bootdiag_reset)
+            $display("[BOOT %0d] machine reset=%b", bootdiag_cycle, reset);
+        if (!reset) begin
+            if (bootdiag_ttr != {machine.cpu.core.itt0, machine.cpu.core.itt1,
+                                 machine.cpu.core.dtt0, machine.cpu.core.dtt1})
+                $display("[BOOT %0d] TTR pc=%08x itt0=%08x itt1=%08x dtt0=%08x dtt1=%08x tc=%08x srp=%08x",
+                    bootdiag_cycle, debug_pc, machine.cpu.core.itt0, machine.cpu.core.itt1,
+                    machine.cpu.core.dtt0, machine.cpu.core.dtt1, cpu_tc, cpu_srp);
+            if (machine.cpu.core.be.wb_bound) begin
+                bootdiag_history[bootdiag_head] <= debug_pc;
+                bootdiag_head <= bootdiag_head + 1'b1;
+                if (debug_pc == 32'h4080008c || debug_pc == 32'h0000008c)
+                    $display("[BOOT %0d] ROM startup pc=%08x", bootdiag_cycle, debug_pc);
+            end
+            if (machine.cpu.core.be.x_go && machine.cpu.core.be.x_vec != 8'd10 &&
+                !(machine.cpu.core.be.take_irq &&
+                  !(machine.cpu.core.be.adv_wb && machine.cpu.core.be.wb_is_exc))) begin
+                $display("[BOOT %0d] exception vec=%0d pc=%08x addr=%08x ssw=%04x sr=%04x",
+                    bootdiag_cycle, machine.cpu.core.be.x_vec, machine.cpu.core.be.x_pc,
+                    machine.cpu.core.be.x_addr, machine.cpu.core.be.x_ssw,
+                    machine.cpu.core.sr);
+                for (integer h=0; h<16; h=h+1)
+                    $display("[BOOT history %0d] pc=%08x", h,
+                        bootdiag_history[4'(bootdiag_head + h)]);
+            end
+            if (machine.iosb.scsi.exec_pending) begin
+                $display("[BOOT %0d] PDMA previous command reads=%0d writes=%0d",
+                    bootdiag_cycle, bootdiag_pdma_reads, bootdiag_pdma_writes);
+                bootdiag_pdma_reads <= 0;
+                bootdiag_pdma_writes <= 0;
+            end
+            if (machine.bus_ack && machine.bus_req &&
+                machine.bus_addr[31:20] == 12'h50f && machine.bus_addr[17:8] == 10'h101) begin
+                if (machine.bus_write) bootdiag_pdma_writes <= bootdiag_pdma_writes + 1;
+                else bootdiag_pdma_reads <= bootdiag_pdma_reads + 1;
+                if (machine.bus_write ? bootdiag_pdma_writes < 4 : bootdiag_pdma_reads < 4)
+                    $display("[BOOT %0d] PDMA write=%b size=%0d addr=%08x data=%08x",
+                        bootdiag_cycle, machine.bus_write, machine.bus_size, machine.bus_addr,
+                        machine.bus_write ? machine.bus_wdata : machine.bus_rdata);
+            end
+            if (machine.cpu.core.rsto_req)
+                $display("[BOOT %0d] RESET instruction pc=%08x", bootdiag_cycle, debug_pc);
+            if (machine.cpu.core.be.dbl_fault)
+                $display("[BOOT %0d] double fault pc=%08x", bootdiag_cycle, debug_pc);
+            if (machine.cpu.bridge.cs == 3'd3)
+                $display("[BOOT %0d] parked bus addr=%08x size=%0d write=%b",
+                    bootdiag_cycle, machine.cpu.bridge.addr, machine.cpu.bridge.size,
+                    machine.cpu.bridge.write);
+        end
+    end
+end
 `endif
 
 //----------------------------------------------------------------------------

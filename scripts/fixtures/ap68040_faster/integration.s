@@ -12,6 +12,22 @@
     org $400
 start:
     move.w #$2700,sr
+; Address-register TST flags depend on the actual low word, including
+; relocated harness addresses. Check both signs with explicit values.
+    movea.l #$00001800,a0
+    tst.w a0
+    bmi fail
+    beq fail
+    movea.l #$fffffffe,a0
+    tst.w a0
+    bpl fail
+    beq fail
+; RTD #4 discards a caller-supplied argument, not the caller's return PC.
+    movea.l sp,a5
+    clr.l -(sp)
+    bsr rtd_sub
+    cmpa.l sp,a5
+    bne fail
     move.l #$11223344,($3000).l
     move.b #$aa,($3001).l
     move.w #$bbcc,($3002).l
@@ -87,6 +103,8 @@ wait_clean:
     move.w #$600d,($f102).l
 done:
     bra done
+rtd_sub:
+    rtd #4
 berr_handler:
     addq.l #1,($3900).l
     rte
