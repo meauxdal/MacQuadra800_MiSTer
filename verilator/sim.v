@@ -153,6 +153,15 @@ reg  [31:0] vid_rdata;
 wire [255:0] m_debug_status;
 wire [127:0] m_debug_status2;
 
+// Optional snapshot of the hardware PRAM image: byte-ordered hex, first 256
+// bytes of the .nvr sector. Load before the first clock, just as the platform
+// restores PRAM before releasing the machine. The default remains zeroed RAM.
+string pram_hex;
+initial if ($value$plusargs("pram=%s", pram_hex)) begin
+    $readmemh(pram_hex, machine.iosb.rtc.pram_ram.mem);
+    $display("[PRAM] loaded %s", pram_hex);
+end
+
 // The sim runs the scanout on clk_sys, as MacLC's does: the dedicated pixel
 // clock only matters to the HDMI scaler on real hardware, and using it here
 // would change every frame count in the existing sim regressions for no
@@ -167,6 +176,12 @@ quadra800 #(.RAM_ADDR_BITS(RAM_ADDR_BITS), .SONIC(0)) machine (
 	.mon_12in(1'b0),                     // sim scans out the 13" 640x480 shape
 	.nreset(~reset),
 	.ce(1'b1),
+	.timestamp(33'd0),
+	.pram_h_we(1'b0),
+	.pram_h_addr(7'd0),
+	.pram_h_wdata(16'd0),
+	.pram_h_rdata(),
+	.pram_wr_stb(),
 
 	.mem_req(mem_req),
 	.mem_write(mem_write),

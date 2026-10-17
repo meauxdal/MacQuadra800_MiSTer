@@ -38,6 +38,16 @@ native bus bursts are a possible later optimization. Interrupt/breakpoint
 acknowledge cycles terminate locally; interrupt cycles autovector. Bus
 errors return TEA, and the existing HPS-aware 24-bit timeout budget remains.
 
+TCI enforces the platform's physical cacheability: RAM (`$00000000` through
+`$3FFFFFFF`) and ROM (`$40000000` through `$4FFFFFFF`) permit caching; other
+physical windows inhibit cache allocation. The initial native wrapper tied
+TCI inactive, losing this restriction from the previous wrapper. A directed
+test demonstrated a stale second read from a changing device register with
+the data cache enabled and TC/TTRs off. It now checks both I/O and VRAM.
+TCI prevents retaining the fetched line; it does not suppress the remaining
+line-transfer beats or replace software's serialized/cache-inhibited page
+attributes. This repair is not yet evidence of successful OS startup.
+
 SONIC requests first withdraw the CPU's bus grant. After the CPU releases
 the bus, DMA runs through its SC=01 snooper. A dirty cache supplies a DMA
 read or absorbs a DMA write. Other transfers use the existing platform DMA

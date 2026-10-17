@@ -259,3 +259,162 @@ Archive SHA-256: `22b2a84d1d366fe1f3382133cc8ab4a2b579ba1b7b4b85b39005679df65b8d
 The result bytes from that archive were preserved separately as
 `hardware_20261017/supplied_Results.jsonl.bin` rather than replacing the valid
 disk capture.
+
+## Mac OS 8.1 retail installer: new Sad Mac
+
+The user supplied `20261017_163727-screen.png`: **`0000000F / 00000001`**
+while attempting to boot the Mac OS 8.1 retail universal installer ISO.
+They explicitly confirm **the same FPGA build, a new test**. This is a new
+observation alongside the earlier CD restart symptom and the passing probe
+corpora; it does not supersede those results.
+
+The minor code is System Error ID 1, a bus/access error. Apple's
+[System Error Handler documentation](https://developer.apple.com/library/archive/documentation/mac/pdf/Operating_System_Utilities/System_Error.pdf)
+identifies ID 1 as an invalid memory reference. The screen does not provide
+the faulting PC, address, or 68040 fault status, and cannot distinguish an
+MMU translation fault, a platform bus fault, or an invalid pointer caused by
+an earlier error.
+
+The user's exact installer is
+`D:\MiSTer\Macintosh\Mac OS\Apple SSW and Mac OS\8\MAC_OS_8-1_RETAIL.ISO`,
+SHA-1 `7900544de9a3653494262e9b8b1448295d66239d`. A read-only-source copy
+from the existing MiSTer image share matches that SHA-1 exactly:
+`scratch/ap68040_os81_cd/installer.iso`, 420,542,464 bytes, SHA-256
+`a9e19e2da7c4ad7552beb3eee2609dbe88c3392fad6e98e1490088b326e5e26c`.
+
+To reduce a known simulator/hardware difference, `verilator/sim.v` now accepts
+optional `+pram=<byte-hex-file>` before the first simulated clock. This loads
+the first 256 bytes of a saved `.nvr` sector, as the hardware's existing host
+loader does. Absent that option, the original zeroed-PRAM behavior remains.
+No hardware PRAM was changed or reset. The read-only snapshot used here is
+`scratch/ap68040_os81_cd/hardware.nvr`, SHA-256
+`b584138207874a17e61ba68e0f1ac3f56fd3e1edec9483c9cd0daa0e97610b84`.
+Faster and legacy full-machine simulator reproductions use the same ISO,
+saved PRAM, and diagnostic ROM, initially with only the CD attached.
+The saved hardware OSD status starts `08 10 00 00`; bits 4:3 select 64 MiB.
+Both reproductions therefore use `+ram=1`. The hardware corpus's initial SRP
+also reflects a 64 MiB machine. Early 32 MiB simulator starts were stopped
+before boot-device access and retained as `early_32mb.log`; they are not the
+matched reproduction. Both hardware ROM files (`boot.rom` and `boot0.rom`)
+match the pristine ROM hash required by the diagnostic-ROM helper.
+
+The user additionally confirms that multiple RAM sizes have already been
+tested and that PRAM has been reset numerous times. The Sad Mac is one of
+several failure modes: other CD attempts keep the mouse responsive while
+waiting, then fail and restart. Actual OS boot always fails. RAM size and
+PRAM resets are therefore not proposed remedies. The matched 64 MiB/PRAM
+simulation is a reproduction control, not evidence that either setting causes
+or fixes the hardware failure. The objective remains successful OS startup;
+the passing bare-boot corpus does not satisfy that objective.
+
+## Targeted follow-up: stop full-boot waiting and audit exclusions
+
+The two seeded 64 MiB CD-only runs were stopped deliberately, with logs,
+RAM snapshots, and gray-screen screenshots preserved in
+`scratch/ap68040_os81_cd/native/` and `legacy/`. Native stopped at tick
+255,131,649; legacy stopped around 340M ticks. Both were still before
+boot-device selection, waiting in ADB discovery at `$4080A870`. Earlier
+successful test-disk simulation spent ticks 220M..380M in the same ROM wait
+before advancing. These runs were stopped too early to establish a stall;
+neither reproduced the installer Sad Mac.
+
+A replacement instrumented run in `adbdiag/` was stopped around 70M ticks
+when the user redirected the investigation away from waiting through full
+Macintosh boot simulations. Its optional ADB trace code was removed again.
+All three logs end with the simulator's normal exit histogram. No hardware
+build, deployment, or reboot occurred. The earlier optional PRAM loader and
+all existing checkout changes remain.
+
+A direct raw-result audit (`scratch/ap68040_os81_cd/audit_raw_results.py`)
+confirmed that **all recorded exception vectors** match the real-Quadra
+captures in CPU, FPU, MMU-full, integration, and save/restore. Integration's
+raw `actual` values all match, without scorer normalization: its 192 `pass=0`
+rows comprise 176 vector-11 rows and 16 FPIAR writes expecting `$12345678`
+but reading `$5678`, also the silicon value. This is evidence about those
+recorded results, not universal CPU correctness.
+
+The audit also exposed a significant limit of the scorer: the two MMU fault
+frame windows are excluded wholesale. Both candidate format-7 frames have
+SSW `$0405`, versus silicon `$0485`; bit 7 is explicitly undefined in
+MC68040UM section 8.4.6.2, so that difference is not a defect. The candidate
+has clear writeback-valid fields, whereas the silicon capture has WB3S and
+WB2S `$0085`. Backend code explicitly uses an instruction-restart model with
+WB3S clear (`ap68040_backend.sv`, exception entry). This difference warrants
+focused recovery checks; it has not been tied to OS startup. Describing the
+entire excluded frame as only relocated PCs would be incorrect.
+
+A scratch-only focused adapter program, `fault_restart.s`, tested a bus-error
+on the destination of `MOVE.L (A0)+,(A1)+`, followed by handler RTE. It verified
+one handler entry, both address registers incremented exactly once, and the
+trace shows the intended `$11223344` destination write after retry. It passes
+in 0.009 seconds using the existing adapter-test executable. This checks the
+simple restart path only, not silicon writeback-frame equivalence, an
+OS-style writeback handler, or successful OS boot. No speculative CPU fix was
+made. The actual installer faulting PC/address/status remain unavailable.
+
+Manual: https://www.nxp.com/docs/en/reference-manual/MC68040UM.pdf,
+sections 8.4.6.2 through 8.4.6.7 (SSW, writebacks, RTE semantics).
+
+## Fresh contract audit: physical cache inhibit
+
+The corpus includes intentional exception cases. A trapping row is successful
+behavior when its recorded vector and state match the silicon oracle; its
+embedded display counter is not itself that comparison. Embedded expectation
+differences also do not invalidate the corpus. The complete hardware capture
+remains useful evidence for its covered paths, with the fault-frame comparison
+limits described above.
+
+Source comparison found a concrete integration regression. The previous
+`wombat_cpu.sv` applies a physical cacheability restriction before its cache:
+RAM `$00000000..$3FFFFFFF` and ROM `$40000000..$4FFFFFFF` permit caching;
+I/O, VRAM, registers and NuBus do not. The native wrapper instead tied TCI
+inactive. Software TC/TTR/page attributes were therefore the only restriction
+on allocation, and permitted device reads could remain in the CPU cache.
+
+A short addition to the existing adapter program enables the data cache with
+TC and TTRs still zero, then reads a synthetic changing register at physical
+`$5000F380` twice. Before the fix, only the first read reaches the platform;
+the second returns the cached first value and the program fails. The trace is
+`scratch/ap68040_faster_integration/io_before.log`. The regression also checks
+two changing reads at `$F900F380` to exercise VRAM's physical window.
+
+`wombat_cpu_ap68040.sv` now drives native TCI from the physical bus address,
+inhibiting allocation outside RAM and ROM. The unchanged native CPU samples
+TCI with the first TA of a line transfer. The final directed program passes
+at fixed latency (3,093 clocks) and random latency (4,121 clocks); both runs
+also retain the existing RAM copyback, dirty/clean DMA, lane, fault-restart,
+interrupt and parked-I/O checks. Log: `io_after.log` in the same directory.
+Each simulated execution takes under 20 ms after compilation.
+
+This is a demonstrated stale-device-data fix, **not a demonstrated OS boot
+fix**. TCI does not prevent the remaining beats of a line transfer and does
+not supply serialized ordering. Software must still select suitable cache
+modes for side-effecting devices. MC68040UM sections 5.4.5 and 7.4.2 specify
+these limits: https://www.nxp.com/docs/en/reference-manual/MC68040UM.pdf.
+
+Existing evidence further limits its causal significance. In the saved
+`native/ram_snapshot_255131649.bin`, the page descriptors for logical
+`$50F06000` are `$50F06059` (CM=2, cache inhibited/serialized) under **both**
+saved roots `$03FFFA00` and `$03FEEA00`. The latter root also maps logical
+`$00F06000` to that same physical I/O page. Earlier ROM trace entries set
+DTT1=`$500FC040`, also cache inhibited. The missing external inhibit cannot
+be blamed for stale SCSI reads in those documented states. Later OS states
+are not captured. No full boot simulation or hardware build was started.
+
+Remaining contract questions, ordered by evidence rather than a claim of one
+shared cause:
+
+* Fault recovery remains a material coverage gap: the scorer excludes whole
+  format-7 frame windows, and the simple RTE test does not exercise an OS
+  handler's writeback processing. No observed OS fault frame is available.
+* Physical TCI now prevents device-line retention, but the old wrapper's
+  pre-cache inhibit also avoided speculative line reads. A side-effecting
+  device accidentally mapped cacheable can still receive four line beats;
+  the new regression does not establish safe access width in that case.
+* The native DMA snooper/parking adapter has short passing directed coverage,
+  not an exhaustive coherency proof. Its relevance depends on whether SONIC
+  is active during a failing attempt; it is not a justified universal cause.
+
+The native interface requires an explicit integration contract. Passing
+instruction tests does not establish that every guarantee formerly supplied
+by the old wrapper has been carried across.

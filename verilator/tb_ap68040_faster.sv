@@ -23,6 +23,7 @@ module tb_ap68040_faster;
     logic [1:0] saved_size;
     logic waits;
     integer overlap_count=0;
+    integer io_reads=0;
 
     wombat_cpu dut (
         .clk(clk), .nreset(nreset), .ce(1'b1), .ipl(ipl), .ipl_autovector(1'b1),
@@ -100,6 +101,11 @@ module tb_ap68040_faster;
                     ack<=1;
                     rdata<=read_mem(saved_addr,1<<saved_size);
                     if(saved_addr==32'hf400) rdata<=32'hface1234;
+                    if(saved_addr==32'h5000f380 || saved_addr==32'hf900f380) begin
+                        io_reads<=io_reads+1;
+                        rdata<=32'(io_reads+1);
+                        if ($test$plusargs("trace")) $display("DEVICE R a=%h value=%h",saved_addr,32'(io_reads+1));
+                    end
                     if(saved_addr==32'hf324) rdata<=32'h01234567;
                     if(saved_addr==32'hf304) rdata<={31'd0,dma_done};
                     if(saved_addr==32'hf308) rdata<=dma_result;
@@ -114,8 +120,9 @@ module tb_ap68040_faster;
                             dma_delay<=waits ? 5 : 0;
                         end
                         if(saved_addr==32'hf102) begin
-                            if(saved_wdata!=32'h600d) $fatal(1,"program failed pc=%h",debug_status[31:0]);
+                            if(saved_wdata!=32'h600d) $fatal(1,"program failed pc=%h device reads=%0d",debug_status[31:0],io_reads);
                             if(overlap_count!=1) $fatal(1,"parked I/O executed %d times",overlap_count);
+                            if(io_reads!=4) $fatal(1,"physical device registers read %d times",io_reads);
                             $display("PASS AP68040 Q800 integration cycles=%0d CPU transfers=%0d DMA memory transfers=%0d",cycles,transfers,dma_transfers);
                             $finish;
                         end

@@ -48,6 +48,11 @@ module wombat_cpu (
     wire sn_ts_n, sn_rw_n, mi_n, sn_ta_n, sn_ta_oe;
     wire retire;
     wire [3:0] pst;
+    // Match Q800's physical cacheability, independently of TC/TTR/page CM:
+    // only djMEMC RAM and ROM may be retained by the CPU. Device/VRAM reads
+    // must sample the platform again, even when software permits caching.
+    // The native BIU samples TCI with the first TA of a line transfer.
+    wire tci_n = (a[31:30] == 2'b00) || (a[31:28] == 4'h4);
     // The integrated MMU walks through the same native bus as all other
     // physical transactions. Q800's old separate walker port is idle.
     assign walker_req = 0;
@@ -75,7 +80,7 @@ module wombat_cpu (
         .d_i(din), .d_o(dout), .d_oe(),
         .rw_n(rw_n), .siz(siz), .tt(tt), .tm(tm), .tln(), .upa(),
         .ciout_n(), .lock_n(lock_n), .locke_n(), .ts_n(ts_n), .tip_n(),
-        .ta_n(ta_n), .tea_n(tea_n), .tci_n(1'b1), .tbi_n(1'b0),
+        .ta_n(ta_n), .tea_n(tea_n), .tci_n(tci_n), .tbi_n(1'b0),
         .ipl_n(ipl), .avec_n(avec_n), .br_n(), .bg_n(bg_n),
         .bb_n_i(bb_n), .bb_n_o(), .bb_oe(), .rsto_n(nresetout),
         .cdis_n(1'b1), .mdis_n(1'b1), .ipend_n(), .pst(pst),

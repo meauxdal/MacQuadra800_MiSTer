@@ -41,6 +41,25 @@ start:
     fmove.l fp0,d0
     cmp.l #5,d0
     bne fail
+; Physical I/O must not be retained in the D-cache, even with TC/TTRs off.
+; The bench register advances on each physical read of its longword.
+    move.l #$80000000,d0
+    movec d0,cacr
+    move.l ($5000f380).l,d0
+    cmp.l #1,d0
+    bne fail
+    move.l ($5000f380).l,d0
+    cmp.l #2,d0
+    bne fail
+; VRAM is also outside the platform's physical cacheable windows.
+    move.l ($f900f380).l,d0
+    cmp.l #3,d0
+    bne fail
+    move.l ($f900f380).l,d0
+    cmp.l #4,d0
+    bne fail
+    moveq #0,d0
+    movec d0,cacr
 ; A native bus error must produce a restartable format-7 frame.
     clr.l ($3900).l
     move.l ($f400).l,d0
