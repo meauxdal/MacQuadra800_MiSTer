@@ -13,5 +13,5 @@ verilator --binary --timing -j 8 -Wno-fatal -Wno-WIDTH -Wno-TIMESCALEMOD \
     -I"$R" -I"$R/fpu" --top-module tb_ap68040_faster --Mdir "$W/obj" \
     "${sources[@]}" "$R/fpu/ap040_fpu.v" rtl/wombat_cpu_ap68040.sv \
     rtl/wombat_ap68040_bus.sv verilator/tb_ap68040_faster.sv > "$W/build.log" 2>&1 || { tail -40 "$W/build.log"; exit 1; }
-"$W/obj/Vtb_ap68040_faster" +prog="$W/integration.hex"
-"$W/obj/Vtb_ap68040_faster" +prog="$W/integration.hex" +waits
+"$W/obj/Vtb_ap68040_faster" +prog="$W/integration.hex" +check_diag
+"$W/obj/Vtb_ap68040_faster" +prog="$W/integration.hex" +waits +check_diag

@@ -144,6 +144,9 @@ module ap68040_backend
 	// debug
 	output logic [31:0] dbg_pc,
 	output logic        dbg_retire,
+	output logic [31:0] dbg_retire_pc,
+	output logic        dbg_exception,
+	output logic [95:0] dbg_exception_info,
 	output logic        halted,
 	output logic        fetch_stop      // no new instruction fetches: stopped
                                         // (STOP) or halted
@@ -1400,6 +1403,10 @@ wire dbl_fault   = xr_dbl && !halted &&
                      (x_first && wb_exc == 8'd2 && (wb_exc_ssw[2:0] == 3'd2 || wb_exc_ssw[2:0] == 3'd6))));
 wire x_go        = ((adv_wb && wb_is_exc && !wb_refetch) || take_trace || take_irq) &&
                    !dbl_fault && !halted;
+// Observation only: sample on this edge, before exception-entry registers
+// and the pipeline are changed. PC/address are logical, except cache pushes.
+assign dbg_exception = x_go;
+assign dbg_exception_info = {x_vec, x_fmt, x_kind, x_pc, x_addr, x_ssw};
 // a locked sequence (TAS, CAS, CAS2, a table update) ends with its LOCKE
 // write; before that only an exception ends it
 assign lk_abandon = x_go || dbl_fault;
@@ -1581,6 +1588,7 @@ always_ff @(posedge clk) begin
 
 	if (!nreset) begin
 		ag_v  <= 1'b0; dc1_v <= 1'b0; dc2_v <= 1'b0; ex_v <= 1'b0; wb_v <= 1'b0;
+		dbg_retire_pc <= 32'd0;
 		sk_v  <= 1'b0;
 		sk_vr <= 1'b0;
 		eredir_pend <= 1'b0;
@@ -1932,6 +1940,7 @@ always_ff @(posedge clk) begin
 		//------------------------------------------------------------------
 		if (wb_commit) begin
 			dbg_retire <= wb_u.last;
+			if (wb_u.last) dbg_retire_pc <= wb_u.pc;
 			// architectural commit: the back file's write ports (bwe)
 			ccr_b <= wb_ccr;
 			if (wb_u.op == OP_SPW) begin

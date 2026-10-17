@@ -73,6 +73,9 @@ module ap68040
 	// debug / test
 	output logic [31:0] dbg_pc,
 	output logic        dbg_retire,
+	output logic [31:0] dbg_retire_pc,
+	output logic        dbg_exception,
+	output logic [95:0] dbg_exception_info,
 	output logic        dbg_halted
 );
 
@@ -272,7 +275,10 @@ ap68040_backend #(.FPU_REVISION(FPU_REVISION), .FPU_PIPE(FPU_PIPE), .EARLY_RES(E
 	.ipl(ipl_v), .iack_lvl(iack_lvl), .rsto_req(rsto_req), .rsto_busy(rsto_busy),
 	.kill_now(kill_now), .lk_abandon(lk_abandon), .adv_ag(adv_ag),
 	.dtt0(dtt0), .dtt1(dtt1), .itt0(itt0), .itt1(itt1), .tc(tc),
-	.dbg_pc(dbg_pc), .dbg_retire(dbg_retire), .halted(dbg_halted), .fetch_stop(be_fstop)
+	.dbg_pc(dbg_pc), .dbg_retire(dbg_retire),
+	.dbg_retire_pc(dbg_retire_pc),
+	.dbg_exception(dbg_exception), .dbg_exception_info(dbg_exception_info),
+	.halted(dbg_halted), .fetch_stop(be_fstop)
 );
 
 ap68040_dmu #(.DC1_ATC(DC1_ATC)) dmu (

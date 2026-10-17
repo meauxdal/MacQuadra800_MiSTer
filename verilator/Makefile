@@ -150,6 +150,10 @@ $(EXE): $(VOUT) $(SIM_HEADERS)
 # tb_ncr53c96 tb_wombat_bus32 tb_store_buffer tb_memory_path*
 # tb_line_dma tb_scsi_irq_ack_race tb_sdma_ack_watchdog tb_iosb_scc
 
+tb_ap68040_diag:
+	$V --binary --timing -j 8 -Wno-fatal --top-module tb_ap68040_diag_overlay --Mdir ./obj_dir_tb_apdiag tb_ap68040_diag_overlay.sv $(RTL)/ap68040_diag_overlay.sv
+	./obj_dir_tb_apdiag/Vtb_ap68040_diag_overlay
+
 # Directed unit test for the EASC (rtl/easc.sv). Runs in seconds and does not
 # need a ROM or a disk, which is the point: the machine only touches the sound
 # chip's FIFO billions of cycles into a boot.

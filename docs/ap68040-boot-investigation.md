@@ -418,3 +418,50 @@ shared cause:
 The native interface requires an explicit integration contract. Passing
 instruction tests does not establish that every guarantee formerly supplied
 by the old wrapper has been carried across.
+
+## Hardware follow-up: TCI did not change the failures
+
+The user tested the physical-inhibit candidate and reports **identical
+symptoms**. HEAD at the follow-up is `d96cfb4` (`cpu: restore physical cache
+inhibit`). No exact hardware artifact hash was supplied in this report.
+The stale-device-read regression remains valid, but the change is not a
+remedy for the reported OS failures and is no longer a leading explanation.
+
+### A narrower fault-recovery reproducer
+
+`scripts/fixtures/ap68040_faster/serialized_io_restart.s` uses DTT0
+`$500FC040` to make a synthetic device register serialized/cache-inhibited,
+then executes `MOVE.L (A0),(A1)+` from that register. A no-fault control writes
+value 1 once, and its next register read returns 2. With an injected bus error
+on the destination write, the native frame has WB3A=`$F400`, WB3D=1, but
+WB3S=0 and PC points back to the MOVE. The handler can complete an ordinary
+longword WB3 when V is set; this frame advertises none. RTE therefore repeats
+the source read, consumes value 2 and writes 2 instead of 1. The next device
+read returns 3 and the test fails. Both runs finish in milliseconds.
+
+Logs: `scratch/ap68040_os81_cd/serialized_io_{control,fault}.log`; scratch
+runner: `run_serialized_io_restart.sh` there. Assemble the fixture without a
+define for the control, or with `-DINJECT_FAULT=1` for the failing case, then
+run it through the existing directed adapter executable with `+trace`.
+
+This establishes a consequence of the restart model that a RAM-source test
+cannot expose. MC68040UM 7.7 discusses serialized device reads, and 8.4.6
+specifies software completion of pending writebacks. It does **not** establish
+that such a destination fault occurs during these OS boots. The previous
+sequential fork also deliberately cleared WB3S and restarted instructions
+(`ap040_core.v`, `aerr_word`); the source choice is not unique to the faster
+integration. Correcting the model requires coordinated frame contents,
+stacked PC, register/CCR commit and continuation behavior; merely setting V
+would cause handlers to perform a write and the restart to perform it again.
+No such architectural change was made on this evidence alone.
+
+### Capture the real failing attempt
+
+The user selected an on-screen overlay for hardware evidence. The new optional
+OSD **CPU diagnostics** observer records selected fault PC/address/SSW, a
+first fault after low-address execution, current PC/bus state, machine reset
+count and re-entry at the known ROM startup address. Captures survive guest
+resets. [Usage and field definitions](ap68040-hardware-diagnostics.md) explain
+the filters, boot-stage heuristic and reset distinction. The observer changes
+no CPU recovery or bus behavior. Directed capture/CDC/reset tests and native
+event checks pass; no hardware build or full boot run was started.

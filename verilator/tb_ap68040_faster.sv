@@ -24,6 +24,17 @@ module tb_ap68040_faster;
     logic waits;
     integer overlap_count=0;
     integer io_reads=0;
+    integer diagnostic_faults=0;
+    logic expected_retire=0;
+    logic [31:0] expected_retire_pc=0;
+    always @(posedge clk) begin
+        expected_retire<=dut.core.be.wb_commit && dut.core.be.wb_u.last;
+        expected_retire_pc<=dut.core.be.wb_u.pc;
+    end
+    always @(negedge clk)
+        if(nreset && $test$plusargs("check_diag") && expected_retire &&
+           (!debug_status[238] || debug_status[95:64]!=expected_retire_pc))
+            $fatal(1,"retirement pulse/PC pair does not identify the committed instruction");
 
     wombat_cpu dut (
         .clk(clk), .nreset(nreset), .ce(1'b1), .ipl(ipl), .ipl_autovector(1'b1),
@@ -64,6 +75,13 @@ module tb_ap68040_faster;
     always @(posedge clk) if(nreset) begin
         if ($test$plusargs("trace") && dut.retire) $display("RETIRE pc=%h sr=%h",debug_status[31:0],dut.core.sr);
         cycles<=cycles+1;
+        if ($test$plusargs("check_diag") && debug_status[239] && debug_status[223:216]==8'd2) begin
+            diagnostic_faults<=diagnostic_faults+1;
+            if(debug_status[215:212]!=4'd7 || debug_status[175:144]!=32'hf400 ||
+               debug_status[143:128]!=16'h0105 ||
+               read_mem(debug_status[207:176],2)!=32'h2039)
+                $fatal(1,"wrong native access-fault diagnostic %h",debug_status[223:128]);
+        end
         if(cycles>200000 || halted) $fatal(1,"CPU timeout/halt pc=%h cs=%d ds=%d",debug_status[31:0],dut.bridge.cs,dut.bridge.ds);
         ack<=0; berr<=0; dma_mem_ack<=0;
         if(dma_req && dma_ack) begin
@@ -123,6 +141,8 @@ module tb_ap68040_faster;
                             if(saved_wdata!=32'h600d) $fatal(1,"program failed pc=%h device reads=%0d",debug_status[31:0],io_reads);
                             if(overlap_count!=1) $fatal(1,"parked I/O executed %d times",overlap_count);
                             if(io_reads!=4) $fatal(1,"physical device registers read %d times",io_reads);
+                            if($test$plusargs("check_diag") && diagnostic_faults!=1)
+                                $fatal(1,"expected one diagnostic access fault, got %d",diagnostic_faults);
                             $display("PASS AP68040 Q800 integration cycles=%0d CPU transfers=%0d DMA memory transfers=%0d",cycles,transfers,dma_transfers);
                             $finish;
                         end

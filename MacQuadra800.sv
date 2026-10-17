@@ -105,6 +105,7 @@ localparam CONF_STR = {
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
+	"O[48],CPU diagnostics,Off,On;",
 	"-;",
 	"P1,MT32-pi;",
 	"P1-;",
@@ -941,9 +942,19 @@ end
 // the LCD text pixel is OR'd into the top 2 (ao486's compositing, verbatim).
 wire [7:0] mac_vga_r, mac_vga_g, mac_vga_b;
 wire       mt32_lcd = mt32_lcd_en & mt32_lcd_on;
-assign VGA_R = mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_r[7:2]} : mac_vga_r;
-assign VGA_G = mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_g[7:2]} : mac_vga_g;
-assign VGA_B = mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_b[7:2]} : mac_vga_b;
+wire cpu_diag_box, cpu_diag_ink;
+ap68040_diag_overlay cpu_diagnostics (
+	.clk_sys(clk_sys), .clk_vid(clk_vid), .enable(status[48]),
+	.machine_reset(reset), .cpu_status(m_debug_status),
+	.ce_pixel(CE_PIXEL), .hblank(m_hblank), .vblank(m_vblank),
+	.box(cpu_diag_box), .ink(cpu_diag_ink)
+);
+assign VGA_R = cpu_diag_box ? (cpu_diag_ink ? 8'hff : 8'h10) :
+               mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_r[7:2]} : mac_vga_r;
+assign VGA_G = cpu_diag_box ? (cpu_diag_ink ? 8'hff : 8'h10) :
+               mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_g[7:2]} : mac_vga_g;
+assign VGA_B = cpu_diag_box ? (cpu_diag_ink ? 8'hff : 8'h10) :
+               mt32_lcd ? {{2{mt32_lcd_pix}}, mac_vga_b[7:2]} : mac_vga_b;
 
 // Audio: the MT32-pi I2S return joins at unity gain, gated by mt32_use (a Pi
 // is present AND "Use MT32-pi" is Yes); exact zeros otherwise, so the mix is

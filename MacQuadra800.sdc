@@ -23,6 +23,9 @@ derive_clock_uncertainty
 # and (c) vid_stride into the VRAM address mapper, which BOTH ports have to
 # agree on, so it stays a clk_sys signal read combinationally by the clk_vid
 # port -- quasi-static, and a change means the guest is redrawing anyway.
+# CPU diagnostics uses a fourth deliberate crossing: a bundled snapshot held
+# stable from the request acknowledgement until the next frame's request,
+# with two-stage request/acknowledgement synchronizers in both directions.
 set_clock_groups -asynchronous -group [get_clocks {emu|pllv|*|divclk}]
 
 # Belt and braces: the synchronizer heads (redundant with the group above).

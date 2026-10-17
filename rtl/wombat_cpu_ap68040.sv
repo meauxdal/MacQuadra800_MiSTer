@@ -47,6 +47,10 @@ module wombat_cpu (
     wire [2:0] tm;
     wire sn_ts_n, sn_rw_n, mi_n, sn_ta_n, sn_ta_oe;
     wire retire;
+    wire [31:0] retire_pc;
+    wire exception_event;
+    wire [95:0] exception_info;
+    wire [6:0] bridge_state;
     wire [3:0] pst;
     // Match Q800's physical cacheability, independently of TC/TTR/page CM:
     // only djMEMC RAM and ROM may be retained by the CPU. Device/VRAM reads
@@ -63,7 +67,14 @@ module wombat_cpu (
     assign debug_fault = !tea_n;
     // Retain the PC field used by the machine and its debug consumers.
     // Legacy sequencer state and opcode fields no longer describe this CPU.
-    assign debug_status = {16'hA040, 12'd0, pst, 192'd0, pc};
+    // Diagnostic packet, kept off the CPU's control paths. The low PC field
+    // and A040 marker retain their existing meanings.
+    assign debug_status = {16'hA040, exception_event, retire, 10'd0, pst,
+                           exception_info, bus_addr, retire_pc,
+                           {4'd0, pst, !ta_n, !tea_n, !lock_n, !ts_n, a_oe,
+                            ipl, tci_n, bridge_state, retire,
+                            debug_halted, stall_hold, berr, bus_ack,
+                            bus_instr, bus_write, bus_req}, pc};
     assign debug_status2 = 0;
     assign cacr_out = 0;
     assign vbr_out = 0;
@@ -84,7 +95,9 @@ module wombat_cpu (
         .ipl_n(ipl), .avec_n(avec_n), .br_n(), .bg_n(bg_n),
         .bb_n_i(bb_n), .bb_n_o(), .bb_oe(), .rsto_n(nresetout),
         .cdis_n(1'b1), .mdis_n(1'b1), .ipend_n(), .pst(pst),
-        .dbg_pc(pc), .dbg_retire(retire), .dbg_halted(debug_halted)
+        .dbg_pc(pc), .dbg_retire(retire), .dbg_halted(debug_halted),
+        .dbg_retire_pc(retire_pc),
+        .dbg_exception(exception_event), .dbg_exception_info(exception_info)
     );
     wombat_ap68040_bus bridge (
         .clk(clk), .nreset(nreset), .ce(ce),
@@ -103,6 +116,7 @@ module wombat_cpu (
         .dma_mem_ack(dma_mem_ack), .dma_mem_rdata(dma_mem_rdata),
         .snoop_addr(sn_a), .snoop_ts_n(sn_ts_n), .snoop_rw_n(sn_rw_n),
         .snoop_size(sn_size), .snoop_control(sn_control),
-        .mi_n(mi_n), .snoop_ta_n(sn_ta_n), .snoop_ta_oe(sn_ta_oe), .snoop_data(dout)
+        .mi_n(mi_n), .snoop_ta_n(sn_ta_n), .snoop_ta_oe(sn_ta_oe), .snoop_data(dout),
+        .debug_state(bridge_state)
     );
 endmodule

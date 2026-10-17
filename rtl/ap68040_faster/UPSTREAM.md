@@ -29,6 +29,11 @@ Local changes to upstream:
   `verilator public_flat`. Verilator 5.032 otherwise localized `result`
   into separate generated C++ functions: the CPU wrote the pass signature,
   but the bench's waiting coroutine never saw it and timed out.
+* `rtl/ap68040_backend.sv`, `rtl/ap68040.sv`: export a read-only exception
+  event (vector, frame, kind, PC, address, SSW) and a registered PC paired
+  with `dbg_retire`. The Q800 diagnostic overlay consumes these; no CPU
+  control or recovery behavior changes. Both direct-core benches explicitly
+  leave the new observation outputs unconnected.
 
 Q800 integration lives outside this directory: `../wombat_cpu_ap68040.sv`,
 `../wombat_ap68040_bus.sv`, and `../quadra800.sv`. Generated decode and

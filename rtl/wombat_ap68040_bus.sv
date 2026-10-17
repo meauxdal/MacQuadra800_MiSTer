@@ -35,7 +35,8 @@ module wombat_ap68040_bus (
     output logic [1:0] snoop_size,
     output logic [1:0] snoop_control,
     input logic mi_n, snoop_ta_n, snoop_ta_oe,
-    input logic [31:0] snoop_data
+    input logic [31:0] snoop_data,
+    output logic [6:0] debug_state
 );
     typedef enum logic [2:0] {C_IDLE, C_WAIT, C_REPLY, C_RETRY,
                               C_PARK, C_RESUME} cstate_t;
@@ -43,6 +44,7 @@ module wombat_ap68040_bus (
                               D_MEM, D_TERM, D_NEXT, D_DONE} dstate_t;
     cstate_t cs;
     dstate_t ds;
+    assign debug_state = {ds, cs};
     logic [31:0] response;
     logic response_err, saved, saved_err;
     logic [31:0] saved_data;
