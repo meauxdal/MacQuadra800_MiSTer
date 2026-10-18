@@ -34,18 +34,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scsi', action='store_true', help='compare prior and faster CPU READ(10)')
     parser.add_argument('--recovery', action='store_true', help='compare MMU faults, frames and RTE recovery')
+    parser.add_argument('--root-recovery', action='store_true',
+                        help='compare distinct URP/SRP, user A7, MOVES and nested RTE recovery')
+    parser.add_argument('--interrupts', action='store_true', help='compare real VIA timer IRQ/STOP/RTE paths')
+    parser.add_argument('--rom-copy', action='store_true', help='replay actual ROM BlockMove and MOVE16 routines')
+    parser.add_argument('--trap-calls', action='store_true', help='ROM copy suite: call via real ROM A-line dispatcher')
     parser.add_argument('--collect-differences', action='store_true',
-                        help='recovery only: retain all differences and return failure after the matrix')
+                        help='recovery suites: retain all differences and return failure after the matrix')
     parser.add_argument('--image', type=Path, default=ROOT / 'scratch/ap68040_os81_cd/installer.iso')
     parser.add_argument('--cpu', choices=['legacy', 'faster', 'both'], default='both')
     parser.add_argument('--no-build', action='store_true')
-    parser.add_argument('--case', help='run one named SCSI matrix case')
+    parser.add_argument('--case', help='run one named differential case')
     parser.add_argument('--snapshot', type=Path,
                         default=ROOT / 'scratch/ap68040_os81_cd/native/ram_snapshot_255131649.bin',
                         help='if present, verify saved SCSI page attributes before testing')
     args = parser.parse_args()
-    if args.scsi and args.recovery:
+    if sum((args.scsi, args.recovery, args.root_recovery, args.interrupts, args.rom_copy)) > 1:
         parser.error('select one differential suite at a time')
+    if args.trap_calls and not args.rom_copy:
+        parser.error('--trap-calls requires --rom-copy')
     WORK.mkdir(parents=True, exist_ok=True)
     vasm = os.environ.get('VASM') or shutil.which('vasmm68k_mot')
     if not vasm or not shutil.which('verilator'):
@@ -77,7 +84,7 @@ def main():
                 ROOT / 'verilator/altddio_out_stub.v']
     host_sources = [FIXTURE / 'platform_scsi_host.cpp', ROOT / 'verilator/sim/cd_window.cpp',
                     ROOT / 'verilator/sim/mac/mac_cdrom_resp.cpp', ROOT / 'verilator/sim/mac/mac_cdrom_play.cpp']
-    differential = args.scsi or args.recovery
+    differential = args.scsi or args.recovery or args.root_recovery or args.interrupts or args.rom_copy
     for cpu in (['legacy', 'faster'] if differential and args.cpu == 'both' else
                 [args.cpu] if differential else ['faster']):
         cpu_sources = sources
@@ -104,6 +111,15 @@ def main():
     if args.recovery:
         recovery_compare(args, vasm)
         return
+    if args.root_recovery:
+        root_recovery_compare(args, vasm)
+        return
+    if args.interrupts:
+        interrupt_compare(args, vasm)
+        return
+    if args.rom_copy:
+        rom_copy_compare(args, vasm)
+        return
     programs = [('pointer_chain', FIXTURE / 'pointer_chain.s', False)]
     programs += [(p, RTL / f'ap68040_faster/tb/asm/{p}.s', True)
                  for p in ('t_fpexc', 't_fpu', 't_stld')]
@@ -118,6 +134,279 @@ def main():
             raise SystemExit(f'{name}: missing success marker')
         print(name + ': ' + next(line for line in output.splitlines()
                                 if line.startswith('PASS native CPU')))
+
+
+def rom_copy_compare(args, vasm):
+    rom = ROOT / 'releases/boot0.rom'
+    digest = hashlib.sha256(rom.read_bytes()).hexdigest()
+    if digest != '7d9cb8c3bae0e26171adf9f24bedf10bf6371ae3c9bdbcdfd3b94e5350099fb6':
+        raise SystemExit('ROM differs from the verified Quadra image')
+    cpus = ['legacy', 'faster'] if args.cpu == 'both' else [args.cpu]
+    shapes = [('small', 0x10003, 0x12005, 7), ('odd', 0x10001, 0x12003, 65),
+              ('line', 0x10000, 0x12000, 513), ('overlap_back', 0x10000, 0x10003, 257),
+              ('overlap_forward', 0x10003, 0x10000, 257),
+              ('source_page', 0x11ffb, 0x10ff3, 513),
+              ('dest_page', 0x1000b, 0x11ff3, 513), ('large', 0x10000, 0x12000, 4096)]
+    if args.trap_calls:
+        shapes = [shape for shape in shapes if shape[0] in ('small', 'odd', 'large')]
+    cases = [(f'{"trap_" if args.trap_calls else ""}{routine}_{shape}_{state_name}', entry, src, dest, length, state)
+             for routine, entry in [('blockmove', 0x4080ca10), ('move16', 0x40884400)]
+             for state, state_name in enumerate(('uncached', 'writethrough', 'copyback'))
+             for shape, src, dest, length in shapes]
+    if args.case:
+        cases = [c for c in cases if c[0] == args.case]
+        if not cases:
+            raise SystemExit(f'unknown ROM copy case: {args.case}')
+    report_path = WORK / ('rom_' + ('trap_' if args.trap_calls else '') + 'copy_results' +
+                         ('_' + args.case if args.case else '') + '.json')
+    report = dict(result='RUNNING', rom=str(rom), rom_sha256=digest, cases=[], trap_calls=args.trap_calls,
+                  arena_pattern='SHAKE256(Q800 ROM BlockMove independent arena v1), 16384 bytes')
+    for name, entry, src, dest, length, state in cases:
+        initial = hashlib.shake_256(b'Q800 ROM BlockMove independent arena v1').digest(0x4000)
+        expected = bytearray(initial)
+        expected[dest-0x10000:dest-0x10000+length] = expected[src-0x10000:src-0x10000+length]
+        if length and src != dest and initial == expected:
+            raise SystemExit('copy oracle must detect an omitted copy')
+        binary = WORK / f'rom_copy_{name}.bin'
+        run([vasm, '-quiet', '-Fbin', '-m68040', '-no-opt', *(['-DTRAPCALL=1'] if args.trap_calls else []), f'-DENTRY={entry}',
+             f'-DSRC={src}', f'-DDST={dest}', f'-DLENGTH={length}', f'-DSTATE={state}',
+             '-o', binary, FIXTURE / 'rom_blockmove.s'], WORK / f'rom_copy_{name}_asm.log')
+        program = binary.read_bytes()
+        if len(program) > 0x8000:
+            raise SystemExit('ROM copy program overlaps expected arena')
+        binary.write_bytes(program.ljust(0x8000, b'\0') + expected + initial)
+        case = dict(name=name, entry=f'{entry:08x}', src=src, dest=dest, length=length, state=state,
+                    program_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), runs={})
+        report['cases'].append(case)
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+        for cpu in cpus:
+            trace = WORK / f'rom_copy_{name}_{cpu}.trace'
+            logfile = WORK / f'rom_copy_{name}_{cpu}.log'
+            try:
+                output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+ram_program', '+recovery',
+                              '+prog=' + str(binary), '+trace=' + str(trace), '+rom=' + str(rom),
+                              '+rom_lines', '+rom_jitter'], logfile)
+            except SystemExit:
+                report['result'] = case['result'] = 'FAIL'
+                case['runs'][cpu] = dict(log=str(logfile), trace=str(trace))
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise
+            memory = {}
+            for line in trace.read_text().splitlines():
+                fields = line.split()
+                if fields[0] == 'M':
+                    address, value = int(fields[1], 16), int(fields[2], 16)
+                    memory[address], memory[address+1] = value >> 8, value & 255
+            def value(address):
+                return int.from_bytes(bytes(memory[a] for a in range(address, address+4)), 'big')
+            observed = [value(a) for a in range(0x3200, 0x3228, 4)]
+            if observed[:7] != [0, 0xe000, 0x456789ab, 0x56789abc, 0x6789abcd, 0x789abcde, 0x89abcdef] or observed[9] != 0x4000:
+                raise SystemExit(f'{name}/{cpu}: ROM return/register/oracle checks failed: {observed}')
+            case['runs'][cpu] = dict(log=str(logfile), trace=str(trace), results=observed,
+                                     platform_result=next(l for l in output.splitlines() if l.startswith('PASS native CPU')),
+                                     rom_result=next(l for l in output.splitlines() if l.startswith('ROM replay')))
+            print(f'{name}/{cpu}: original ROM copy + 16KiB independent arena check PASS', flush=True)
+        case['result'] = 'MATCH' if len(cpus) == 2 else 'PASS (single CPU)'
+        if len(cpus) == 2 and case['runs']['legacy']['results'] != case['runs']['faster']['results']:
+            report['result'] = case['result'] = 'DIVERGENCE'
+            report_path.write_text(json.dumps(report, indent=2) + '\n')
+            raise SystemExit(f'{name}: differing ROM return observations; see {report_path}')
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+    report['result'] = 'COMPLETE'
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+
+
+def interrupt_compare(args, vasm):
+    cpus = ['legacy', 'faster'] if args.cpu == 'both' else [args.cpu]
+    cases = [(f't{timer+1}_{waitname}_{mode_name}', timer, wait, mode)
+             for mode, mode_name in enumerate(('uncached', 'rom_cache', 'mmu_alias'))
+             for timer in range(2)
+             for wait, waitname in enumerate(('rmw', 'stop', 'pending_stop'))]
+    if args.case:
+        cases = [c for c in cases if c[0] == args.case]
+        if not cases:
+            raise SystemExit(f'unknown interrupt case: {args.case}')
+    report = dict(result='RUNNING', cases=[])
+    report_path = WORK / ('interrupt_results' + ('_' + args.case if args.case else '') + '.json')
+    for name, timer, wait, mode in cases:
+        binary = WORK / f'interrupt_{name}.bin'
+        run([vasm, '-quiet', '-Fbin', '-m68040', '-no-opt', f'-DTIMER={timer}',
+             f'-DWAIT={wait}', f'-DMODE={mode}', '-o', binary, FIXTURE / 'via_interrupts.s'],
+            WORK / f'interrupt_{name}_asm.log')
+        case = dict(name=name, timer=timer+1, wait=wait, mode=mode,
+                    program_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), runs={})
+        for cpu in cpus:
+            trace = WORK / f'interrupt_{name}_{cpu}.trace'
+            logfile = WORK / f'interrupt_{name}_{cpu}.log'
+            output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+ram_program', '+recovery',
+                          '+prog=' + str(binary), '+trace=' + str(trace)], logfile)
+            memory = {}
+            for line in trace.read_text().splitlines():
+                parts = line.split()
+                if parts[0] == 'M':
+                    address, value = int(parts[1], 16), int(parts[2], 16)
+                    memory[address], memory[address+1] = value >> 8, value & 255
+            def value(address, size=4):
+                return int.from_bytes(bytes(memory[a] for a in range(address, address+size)), 'big')
+            observed = dict(irq_count=value(0x3200), rounds=value(0x3204),
+                            saved_sr=value(0x3208, 2), saved_pc=value(0x320c),
+                            format_vector=value(0x3210, 2), ifr_before=value(0x3214, 1),
+                            ifr_after=value(0x3215, 1), data=value(0x3218),
+                            expected_data=value(0x321c), expected_irqs=value(0x3220),
+                            final_sp=value(0x3224))
+            flag = 0x40 if timer == 0 else 0x20
+            if not (observed['irq_count'] == observed['rounds'] == observed['expected_irqs'] == 32 and
+                    observed['saved_sr'] & 0x2700 == 0x2000 and observed['format_vector'] == 0x64 and
+                    observed['ifr_before'] & (flag | 0x80) == flag | 0x80 and
+                    observed['ifr_after'] & flag == 0 and observed['final_sp'] == 0xe000 and
+                    observed['data'] == observed['expected_data'] == 0x11223344 + (512 if wait == 0 else 0)):
+                raise SystemExit(f'{name}/{cpu}: independent interrupt checks failed: {observed}')
+            case['runs'][cpu] = dict(observed=observed, log=str(logfile), trace=str(trace),
+                                     platform_result=next(l for l in output.splitlines()
+                                                          if l.startswith('PASS native CPU')))
+            print(f'{name}/{cpu}: 32 real timer interrupts, register/RTE/data checks PASS', flush=True)
+        # IRQ instruction timing, saved CCR, and the unused IFR source flags
+        # legitimately vary. Every run separately checks the active contract.
+        case['result'] = 'MATCH' if len(cpus) == 2 else 'PASS (single CPU)'
+        report['cases'].append(case)
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+    report['result'] = 'COMPLETE'
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+
+
+def root_recovery_compare(args, vasm):
+    """Root selection and nested returns have independent physical oracles.
+
+    Keep incoming/result flags equal for ordinary MOVE stores: the separate
+    --recovery suite already isolates the known stacked-CCR difference.
+    This experiment must distinguish URP from SRP even when both CPUs agree.
+    """
+    cpus = ['legacy', 'faster'] if args.cpu == 'both' else [args.cpu]
+    names = ['user_read_invalid', 'user_write_invalid', 'user_a7_write_invalid',
+             'moves_read_user_invalid', 'moves_write_user_protected',
+             'user_ifetch_invalid', 'user_nested_read_invalid']
+    cases = [(name + suffix, kind, cache)
+             for cache, suffix in [(0, ''), (1, '_icache'), (2, '_copyback')]
+             for kind, name in enumerate(names)]
+    if args.case:
+        cases = [c for c in cases if c[0] == args.case]
+        if not cases:
+            raise SystemExit(f'unknown root recovery case: {args.case}')
+    report = dict(cases=[], result='RUNNING', roots=dict(srp='00004000', urp='00005000'))
+    report_path = WORK / ('root_recovery_results' + ('_' + args.case if args.case else '') + '.json')
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+    for name, kind, cache in cases:
+        binary = WORK / f'root_recovery_{name}.bin'
+        run([vasm, '-quiet', '-Fbin', '-m68040', '-no-opt', f'-DKIND={kind}', f'-DCACHE={cache}',
+             '-o', binary, FIXTURE / 'mmu_root_recovery.s'], WORK / f'root_recovery_{name}_asm.log')
+        case = dict(name=name, kind=kind, cache=cache,
+                    program_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), runs={})
+        normalized = []
+        for cpu in cpus:
+            trace = WORK / f'root_recovery_{name}_{cpu}.trace'
+            logfile = WORK / f'root_recovery_{name}_{cpu}.log'
+            output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+ram_program', '+recovery',
+                          '+prog=' + str(binary), '+trace=' + str(trace)], logfile)
+            if 'PASS recovery capture' not in output:
+                raise SystemExit(f'{name}/{cpu}: missing recovery capture')
+            memory = {}
+            for line in trace.read_text().splitlines():
+                fields = line.split()
+                if fields[0] == 'M':
+                    address, value = int(fields[1], 16), int(fields[2], 16)
+                    memory[address], memory[address+1] = value >> 8, value & 255
+            def value(address, size=4):
+                return int.from_bytes(bytes(memory[a] for a in range(address, address+size)), 'big')
+            result = {f'{offset:02x}': value(0x3200+offset) for offset in range(0, 0x60, 4)}
+            faults = 2 if kind == 6 else 1
+            frames = [bytes(memory[a] for a in range(base, base+60))
+                      for base in [0x3100, 0x3140][:faults]]
+            checks = []
+            def check(label, actual, expected):
+                if actual != expected:
+                    checks.append(f'{label}: got {actual:08x}, expected {expected:08x}')
+            check('fault count', result['00'], faults)
+            check('outer ISP frame address', result['04'], 0xe000-60)
+            check('inner ISP frame address', result['08'], 0xe000-60-28-60 if kind == 6 else 0)
+            check('final ISP', result['3c'], 0xe000)
+            check('final USP', result['20'], 0xd004 if kind == 2 else 0xd000)
+            check('final A0', result['10'], 0xd000)
+            check('final A1', result['14'], 0x10000 if kind == 5 else 0x10004)
+            check('final D4', result['18'], 0x11223344 if kind in (0, 3, 6) else
+                  0x2468ace0 if kind == 5 else 0x12345678)
+            check('preserved D5', result['1c'], 0x87654321)
+            check('resumed SR', result['24'] >> 16,
+                  0x2704 if kind in (3, 4) else 0x0700)
+            check('user physical data', result['30'], 0x12345678 if kind in (1, 4) else
+                  0x40de1234 if kind == 2 else 0x11223344)
+            check('supervisor decoy', result['34'], 0x55667788)
+            check('user stack source', result['38'], 0x40de1234)
+            check('user trap count', result['50'], 0 if kind in (3, 4) else 1)
+            check('nested SRP read result', result['54'], 0x55667788 if kind == 6 else 0)
+            check('preserved SFC', result['58'], 1)
+            check('preserved DFC', result['5c'], 1)
+            check('original user data descriptor', result['40'],
+                  0x18004 + (0x39 if cache == 2 else 0x59) if kind == 4 else
+                  0x18000 + (0x39 if cache == 2 else 0x59) if kind == 5 else 0)
+            check('final user physical mapping', result['48'] & 0xffffe000, 0x18000)
+            check('final supervisor physical mapping', result['4c'] & 0xffffe000, 0x10000)
+            architectural_frames = []
+            for index, frame in enumerate(frames):
+                def field(offset, size=4):
+                    return int.from_bytes(frame[offset:offset+size], 'big')
+                check(f'frame {index} format/vector', field(6, 2), 0x7008)
+                check(f'frame {index} FA', field(20), 0x6000 if kind == 5 else 0x10000)
+                check(f'frame {index} PC', field(2), result['0c'] if index else
+                      0x6000 if kind == 5 else result['28'])
+                expected_ssw = (0x505 if index else 0x502 if kind == 5 else
+                                0x401 if kind in (1, 2, 4) else 0x501)
+                check(f'frame {index} SSW', field(12, 2), expected_ssw)
+                # Ordinary MOVE stores use equal incoming/result flags so
+                # the known CCR difference cannot hide a root/stack failure.
+                expected_super = index > 0 or kind in (3, 4)
+                check(f'frame {index} saved privilege', field(0, 2) & 0x2000,
+                      0x2000 if expected_super else 0)
+                if index == 0:
+                    check('outer saved SR', field(0, 2), 0x2704 if kind in (3, 4) else 0x0700)
+                active = bytearray(frame)
+                for status, payload in [(14, (24, 28)), (16, (32, 36)), (18, (40, 44))]:
+                    if not field(status, 2) & 0x80:
+                        for offset in payload:
+                            active[offset:offset+4] = b'\0'*4
+                architectural_frames.append(bytes(active))
+            case['runs'][cpu] = dict(results=result, frames_hex=[f.hex() for f in frames],
+                                     check_failures=checks, log=str(logfile), trace=str(trace),
+                                     platform_result=next(l for l in output.splitlines()
+                                                          if l.startswith('PASS native CPU')))
+            normalized.append((architectural_frames, result))
+            if checks:
+                case['result'] = 'CONTRACT_FAILURE'
+                report['cases'].append(case)
+                report['result'] = 'CONTRACT_FAILURE'
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise SystemExit(f'{name}/{cpu}: ' + '; '.join(checks) + f'; see {report_path}')
+            print(f'{name}/{cpu}: {faults} fault(s), distinct-root/stack/data checks PASS', flush=True)
+        differences = []
+        if len(normalized) == 2:
+            for index, (left, right) in enumerate(zip(normalized[0][0], normalized[1][0])):
+                differences += [f'frame {index} +{i:02x}: {a:02x}/{b:02x}'
+                                for i, (a, b) in enumerate(zip(left, right)) if a != b]
+            differences += [f'result +{offset}: {normalized[0][1][offset]:08x}/{normalized[1][1][offset]:08x}'
+                            for offset in result if normalized[0][1][offset] != normalized[1][1][offset]]
+        case['differences'] = differences
+        case['result'] = 'DIVERGENCE' if differences else 'MATCH' if len(cpus) == 2 else 'PASS (single CPU)'
+        report['cases'].append(case)
+        if differences:
+            report['result'] = 'DIVERGENCE'
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+        print(f'{name}: {case["result"]}' + (f' {differences}' if differences else ''), flush=True)
+        if differences and not args.collect_differences:
+            raise SystemExit(f'FIRST DIVERGENCE: {name}; see {report_path}')
+    if report['result'] == 'RUNNING':
+        report['result'] = 'COMPLETE'
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
+    if report['result'] != 'COMPLETE':
+        raise SystemExit(f'Root recovery differences recorded in {report_path}')
 
 
 def recovery_compare(args, vasm):

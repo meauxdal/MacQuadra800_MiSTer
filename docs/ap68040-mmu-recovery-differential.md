@@ -180,3 +180,13 @@ evidence as constraints. Nested faults, MOVEM continuation, valid WB1/WB2/WB3
 completion, user/supervisor root switching and the actual OS exception handler
 remain outside this bounded matrix. There is still no demonstrated boot fix
 or reason to request another speculative hardware cycle.
+
+## Subsequent distinct-root experiment
+
+The next short platform experiment now covers distinct user/supervisor roots,
+user A7 rollback, MOVES FC1 fault recovery, user instruction-fetch repair and
+a nested supervisor fault inside a user-fault handler. All 21 pairs / 42
+executions pass independent checks and match across CPUs, with zero SDRAM
+protocol errors. This narrows those previously listed coverage gaps without
+resolving valid-writeback completion or establishing a boot cause. See
+[commands, physical oracles and exact limits](ap68040-root-recovery-differential.md).

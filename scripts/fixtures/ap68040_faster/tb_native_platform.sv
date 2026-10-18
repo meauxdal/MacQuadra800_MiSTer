@@ -47,6 +47,9 @@ reg [12:0] sd_buff_addr=0;
 reg [15:0] sd_buff_dout=0;
 wire [15:0] sd_buff_din;
 reg sd_buff_wr=0;
+reg rom_line_valid=0;
+reg [19:4] rom_line_tag=0;
+reg [127:0] rom_line_data=0;
 
 wire mem_is_ram  = (mem_memsel == 2'd0);
 wire mem_is_rom  = (mem_memsel == 2'd1);
@@ -64,7 +67,7 @@ quadra800 #(.RAM_ADDR_BITS(27), .CDROM(1), .SONIC(0)) dut (
 	.mem_wp_valid(mem_wp_valid), .mem_wp_addr(mem_wp_addr), .mem_wp_be(mem_wp_be),
 	.mem_wp_data(mem_wp_data), .mem_wq_room(sdr_wq_room),
 	.mem_line_valid(sdr_line_valid), .mem_line_tag(sdr_line_tag), .mem_line_data(sdr_line_data),
-	.mem_rom_line_valid(1'b0), .mem_rom_line_tag(16'd0), .mem_rom_line_data(128'd0),
+	.mem_rom_line_valid(rom_line_valid), .mem_rom_line_tag(rom_line_tag), .mem_rom_line_data(rom_line_data),
 	.mem_line_pending(sdr_line_pending), .mem_line_pending_tag(sdr_line_pending_tag),
 	.vid_addr(), .vid_rdata(32'd0), .vid_stride(),
 	.VGA_R(), .VGA_G(), .VGA_B(), .VGA_HS(), .VGA_VS(), .VGA_HB(), .VGA_VB(), .CE_PIXEL(),
@@ -127,6 +130,8 @@ endfunction
 //----------------------------------------------------------------------------
 reg [7:0] rom [0:1048575];
 integer   romlat = 6, rom_wait = -1;
+integer   use_rom_lines=0, rom_jitter=0;
+reg [31:0] rom_delay_rng=32'h51c04a17;
 reg       vram_ph = 0;
 longint   rom_reads = 0, rom_reads_loop = 0, vram_beats = 0;
 reg       in_loop = 0;
@@ -139,13 +144,23 @@ always @(posedge clk_sys) begin
 	end
 	if (mem_req && !mem_ack && mem_is_rom) begin
 		if (mem_write) mem_ack_r <= 1;
-		else if (rom_wait < 0) rom_wait = romlat;
+		else if (rom_wait < 0) begin
+            rom_delay_rng = (rom_delay_rng << 1) ^ (rom_delay_rng[31] ? 32'h04c11db7 : 0);
+            rom_wait = romlat + (rom_jitter ? int'(rom_delay_rng & 31) : 0);
+            if(use_rom_lines) rom_line_valid <= 0;
+        end
 		else if (rom_wait <= 1) begin
 			mem_rdata_r <= {rom[{mem_addr[19:2],2'd0}], rom[{mem_addr[19:2],2'd1}],
 			                rom[{mem_addr[19:2],2'd2}], rom[{mem_addr[19:2],2'd3}]};
 			mem_ack_r <= 1;
 			rom_wait = -1;
 			rom_reads++; if (in_loop) rom_reads_loop++;
+            if(use_rom_lines) begin
+                rom_line_tag <= mem_addr[19:4];
+                for(integer word_i=0;word_i<16;word_i++)
+                    rom_line_data[127-word_i*8 -: 8] <= rom[{mem_addr[19:4],4'b0}+word_i];
+                rom_line_valid <= 1;
+            end
 		end
 		else rom_wait = rom_wait - 1;
 	end
@@ -226,14 +241,16 @@ always @(posedge clk_sys) if(nreset && scsi_mode) begin
     end
     if(dbg_berr) $fatal(1,"unexpected bus error address=%h",dbg_berr_addr);
 end
-string path;
+string path, full_rom_path;
 integer fd,count,i;
 integer cycles=0, failures=0, done_wait=0;
 initial begin
+    use_rom_lines=$test$plusargs("rom_lines");
+    rom_jitter=$test$plusargs("rom_jitter");
     if($test$plusargs("recovery")) begin
         recovery_mode=1;
         if(!$value$plusargs("trace=%s",trace_path)) $fatal(1,"missing recovery trace");
-        trace_fd=$fopen(trace_path,"w");
+        if(trace_fd==0) trace_fd=$fopen(trace_path,"w");
         if(!trace_fd) $fatal(1,"recovery trace open");
     end
     if($value$plusargs("image=%s",image_path)) begin
@@ -255,6 +272,13 @@ initial begin
     count=$fread(img,fd); $fclose(fd);
     for(i=0;i<65536;i+=2) chip.mem[sdcell(i,i[1])]={img[i],img[i+1]};
     for(i=0;i<65536;i++) rom[i]=img[i];
+    if($value$plusargs("rom=%s",full_rom_path)) begin
+        fd=$fopen(full_rom_path,"rb"); if(!fd) $fatal(1,"full ROM open");
+        count=$fread(rom,fd); $fclose(fd);
+        if(count!=1048576) $fatal(1,"full ROM size");
+        // Fixture reset vectors only; called ROM routines stay unmodified.
+        for(i=0;i<4;i++) rom[i]=img[i];
+    end
     if($test$plusargs("ram_program")) begin
         // ROM reset trampoline clears the real overlay, then runs the
         // unmodified upstream program from its preloaded RAM addresses.
@@ -275,13 +299,20 @@ always @(posedge clk_sys) if(nreset) begin
     cycles<=cycles+1;
     if(cycles>3000000) $fatal(1,"platform timeout status=%h",debug_status);
     if(debug_fault || debug_halted) $fatal(1,"unexpected CPU fault/halt status=%h",debug_status);
-    if(recovery_mode && dut.bus_req && dut.bus_ack && dut.bus_addr[31:28]==4'h5) begin
+    if(recovery_mode && !scsi_mode && dut.bus_req && dut.bus_ack && dut.bus_addr[31:28]==4'h5) begin
         $fdisplay(trace_fd,"B %0d %0d %08x %08x",dut.bus_write,dut.bus_size,
                   dut.bus_addr,dut.bus_write ? dut.bus_wdata : dut.bus_rdata);
         $fflush(trace_fd);
     end
     if(dut.bus_req && dut.bus_ack && dut.bus_write && dut.bus_addr==32'hf102) begin
-        if(dut.bus_wdata!=32'h600d) $fatal(1,"program failed status=%h",debug_status);
+        if(dut.bus_wdata!=32'h600d) begin
+            if(recovery_mode) begin
+                for(integer b='h3200;b<'h3260;b+=2)
+                    $fdisplay(trace_fd,"M %04x %04x",b,chip.mem[sdcell(b&~3,(b&2)!=0)]);
+                $fflush(trace_fd);
+            end
+            $fatal(1,"program failed status=%h",debug_status);
+        end
         done_wait<=1;
     end
     if(done_wait!=0) begin
@@ -307,6 +338,7 @@ always @(posedge clk_sys) if(nreset) begin
                 $display("PASS SCSI bytes=%0d host_requests=%0d",expected_bytes,host_requests);
             end
             $display("PASS native CPU + real Q800 bus32/service + SDRAM bridge/controller program test cycles=%0d protocol_errors=%0d",cycles,chip.errors+chip_hi.errors);
+            if(full_rom_path!="") $display("ROM replay reads=%0d retained_lines=%0d jitter=%0d",rom_reads,use_rom_lines,rom_jitter);
             $finish;
         end
     end
