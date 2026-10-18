@@ -33,11 +33,16 @@ def run(argv, logfile):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scsi', action='store_true', help='compare prior and faster CPU READ(10)')
+    parser.add_argument('--pdma-reduction', action='store_true',
+                        help='reduce ROM NOP/device-read cancellation with real SCSI PDMA')
     parser.add_argument('--recovery', action='store_true', help='compare MMU faults, frames and RTE recovery')
     parser.add_argument('--root-recovery', action='store_true',
                         help='compare distinct URP/SRP, user A7, MOVES and nested RTE recovery')
     parser.add_argument('--interrupts', action='store_true', help='compare real VIA timer IRQ/STOP/RTE paths')
     parser.add_argument('--rom-copy', action='store_true', help='replay actual ROM BlockMove and MOVE16 routines')
+    parser.add_argument('--rom-scsi', action='store_true', help='execute original ROM SCSI Manager READ(10)')
+    parser.add_argument('--rom-host-delay', type=int, default=40,
+                        help='ROM SCSI suite: clocks before each HPS response')
     parser.add_argument('--trap-calls', action='store_true', help='ROM copy suite: call via real ROM A-line dispatcher')
     parser.add_argument('--collect-differences', action='store_true',
                         help='recovery suites: retain all differences and return failure after the matrix')
@@ -49,7 +54,7 @@ def main():
                         default=ROOT / 'scratch/ap68040_os81_cd/native/ram_snapshot_255131649.bin',
                         help='if present, verify saved SCSI page attributes before testing')
     args = parser.parse_args()
-    if sum((args.scsi, args.recovery, args.root_recovery, args.interrupts, args.rom_copy)) > 1:
+    if sum((args.scsi, args.pdma_reduction, args.recovery, args.root_recovery, args.interrupts, args.rom_copy, args.rom_scsi)) > 1:
         parser.error('select one differential suite at a time')
     if args.trap_calls and not args.rom_copy:
         parser.error('--trap-calls requires --rom-copy')
@@ -84,7 +89,7 @@ def main():
                 ROOT / 'verilator/altddio_out_stub.v']
     host_sources = [FIXTURE / 'platform_scsi_host.cpp', ROOT / 'verilator/sim/cd_window.cpp',
                     ROOT / 'verilator/sim/mac/mac_cdrom_resp.cpp', ROOT / 'verilator/sim/mac/mac_cdrom_play.cpp']
-    differential = args.scsi or args.recovery or args.root_recovery or args.interrupts or args.rom_copy
+    differential = args.scsi or args.pdma_reduction or args.recovery or args.root_recovery or args.interrupts or args.rom_copy or args.rom_scsi
     for cpu in (['legacy', 'faster'] if differential and args.cpu == 'both' else
                 [args.cpu] if differential else ['faster']):
         cpu_sources = sources
@@ -105,7 +110,7 @@ def main():
                  '-I' + str(CPU / 'fpu'), *defines,
                  '-CFLAGS', '-I' + str(ROOT / 'verilator/sim') + ' -I' + str(ROOT / 'verilator/sim/mac'),
                  *cpu_sources, *host_sources], WORK / f'build_{cpu}.log')
-    if args.scsi:
+    if args.scsi or args.pdma_reduction:
         scsi_compare(args, vasm)
         return
     if args.recovery:
@@ -119,6 +124,9 @@ def main():
         return
     if args.rom_copy:
         rom_copy_compare(args, vasm)
+        return
+    if args.rom_scsi:
+        rom_scsi_compare(args, vasm)
         return
     programs = [('pointer_chain', FIXTURE / 'pointer_chain.s', False)]
     programs += [(p, RTL / f'ap68040_faster/tb/asm/{p}.s', True)
@@ -134,6 +142,98 @@ def main():
             raise SystemExit(f'{name}: missing success marker')
         print(name + ': ' + next(line for line in output.splitlines()
                                 if line.startswith('PASS native CPU')))
+
+
+def rom_scsi_compare(args, vasm):
+    rom = ROOT / 'releases/boot0.rom'
+    rom_digest = hashlib.sha256(rom.read_bytes()).hexdigest()
+    if rom_digest != '7d9cb8c3bae0e26171adf9f24bedf10bf6371ae3c9bdbcdfd3b94e5350099fb6':
+        raise SystemExit('ROM differs from the verified Quadra image')
+    snapshot = args.snapshot.read_bytes()
+    if int.from_bytes(snapshot[0xe54:0xe58], 'big') != 0x40807460:
+        raise SystemExit('saved SCSI trap mapping changed')
+    image = args.image.read_bytes()
+    cpus = ['legacy', 'faster'] if args.cpu == 'both' else [args.cpu]
+    cases = [(f'{device}_{state}', target, 16 if target == 3 else 64, mode, 0x10000, 1, 5)
+             for device, target in [('cd', 3), ('disk', 0)]
+             for mode, state in enumerate(('uncached', 'rom_cache'))]
+    cases += [(f'cd_{shape}_{state}', 3, 17, mode, dest, blocks, selector)
+              for shape, dest, blocks, selector in [('rblind', 0x10000, 1, 8),
+                                                     ('odd_boundary', 0x11ffb, 3, 5)]
+              for mode, state in enumerate(('uncached', 'rom_cache'))]
+    if args.case:
+        cases = [c for c in cases if c[0] == args.case]
+        if not cases:
+            raise SystemExit(f'unknown ROM SCSI case: {args.case}')
+    report_path = WORK / ('rom_scsi_results' + ('_' + args.case if args.case else '') + '.json')
+    report = dict(result='RUNNING', rom_sha256=rom_digest, snapshot_sha256=hashlib.sha256(snapshot).hexdigest(),
+                  image_sha1=hashlib.sha1(image).hexdigest(), cases=[])
+    for name, target, lba, mode, dest, blocks, selector in cases:
+        block_size = 2048 if target == 3 else 512
+        size = blocks * block_size
+        offset = lba * block_size
+        expected = image[offset:offset+size]
+        if len(expected) != size:
+            raise SystemExit('image too short')
+        binary = WORK / f'rom_scsi_{name}.bin'
+        run([vasm, '-quiet', '-Fbin', '-m68040', '-no-opt', f'-DTARGET={target}',
+             f'-DLBA={lba}', f'-DBYTES={size}', f'-DMODE={mode}', f'-DDEST={dest}',
+             f'-DBLOCKS={blocks}', f'-DREADSEL={selector}', '-o', binary,
+             FIXTURE / 'rom_scsi_read10.s'], WORK / f'rom_scsi_{name}_asm.log')
+        program = bytearray(binary.read_bytes().ljust(0x8000, b'\0'))
+        # Recorded low-memory globals, OS/toolbox trap tables and resident
+        # SCSI manager table/queues. Guest code starts at $2000; preserve its
+        # reset/exception vectors and result log, not the old CPU state.
+        program[0x100:0x2000] = snapshot[0x100:0x2000]
+        program[0x7000:0x8000] = snapshot[0x7000:0x8000]
+        binary.write_bytes(program + expected)
+        case = dict(name=name, target=target, lba=lba, bytes=size, mode=mode,
+                    dest=dest, blocks=blocks, selector=selector, host_delay=args.rom_host_delay,
+                    program_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), runs={})
+        report['cases'].append(case)
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+        for cpu in cpus:
+            trace = WORK / f'rom_scsi_{name}_{cpu}.trace'
+            logfile = WORK / f'rom_scsi_{name}_{cpu}.log'
+            case['runs'][cpu] = dict(log=str(logfile), trace=str(trace))
+            try:
+                output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+ram_program', '+recovery',
+                              '+prog=' + str(binary), '+trace=' + str(trace), '+rom=' + str(rom),
+                              '+rom_lines', '+rom_jitter', '+operand_trace', '+image=' + str(args.image),
+                              f'+dest={dest}', f'+bytes={size}', f'+offset={offset}',
+                              f'+host_delay={args.rom_host_delay}'], logfile)
+            except SystemExit:
+                report['result'] = case['result'] = 'FAIL'
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise
+            trace_lines = trace.read_text().splitlines()
+            wanted = [f'R {dest+i:08x} {b:02x}' for i, b in enumerate(expected)]
+            if [line for line in trace_lines if line.startswith('R ')] != wanted or 'PASS SCSI' not in output:
+                report['result'] = case['result'] = 'ORACLE_FAILURE'
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise SystemExit(f'{name}/{cpu}: direct SDRAM/ISO oracle failed')
+            captured = {}
+            for line in trace_lines:
+                parts = line.split()
+                if parts[0] == 'M':
+                    address, half = int(parts[1], 16), int(parts[2], 16)
+                    captured[address], captured[address+1] = half >> 8, half & 255
+            results = bytes(captured[a] for a in range(0x3200, 0x3218))
+            if int.from_bytes(results[:4], 'big') != 5 or any(results[4:18]) or int.from_bytes(results[20:24], 'big') != 0xe000:
+                report['result'] = case['result'] = 'ROM_RESULT_FAILURE'
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise SystemExit(f'{name}/{cpu}: SCSI API result/mailbox checks failed: {results.hex()}')
+            case['runs'][cpu]['mailbox_hex'] = results.hex()
+            bulk_reads = [line for line in trace_lines if line.startswith('B 0 2 50f50100 ')]
+            case['runs'][cpu]['bulk_long_reads'] = len(bulk_reads)
+            if dest % 4 == 0 and len(bulk_reads) != size // 4:
+                raise SystemExit(f'{name}/{cpu}: extra/missing bulk reads: {len(bulk_reads)}')
+            case['runs'][cpu]['platform_result'] = next(l for l in output.splitlines() if l.startswith('PASS native CPU'))
+            print(f'{name}/{cpu}: original ROM SCSI Manager + independent {size}-byte RAM check PASS', flush=True)
+        case['result'] = 'MATCH' if len(cpus) == 2 else 'PASS (single CPU)'
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
+    report['result'] = 'COMPLETE'
+    report_path.write_text(json.dumps(report, indent=2) + '\n')
 
 
 def rom_copy_compare(args, vasm):
@@ -609,6 +709,7 @@ def scsi_compare(args, vasm):
     print(f'image SHA1={digest}', flush=True)
     report = dict(image=str(args.image), image_sha1=digest,
                   saved_mappings=check_saved_scsi_map(args.snapshot), cases=[])
+    report_path = WORK / ('pdma_reduction_results.json' if args.pdma_reduction else 'scsi_results.json')
     cpus = ['legacy', 'faster'] if args.cpu == 'both' else [args.cpu]
     cases = [
         # name, target, LBA, blocks, destination, mixed widths, HPS delay, mode
@@ -621,6 +722,10 @@ def scsi_compare(args, vasm):
         ('cd_mmu_boundary_slow', 3, 17, 3, 0x11ffb, True, 16000, 2),
         ('disk_mmu_boundary_slow', 0, 7, 3, 0x11ffd, True, 16000, 2),
     ]
+    if args.pdma_reduction:
+        cases = [(f'pdma_{state}_{shape}', 3, 16, 1, 0x10000, False, 40, mode)
+                 for mode, state in enumerate(('uncached', 'serialized'))
+                 for shape in ('consecutive', 'separated')]
     if args.case:
         cases = [c for c in cases if c[0] == args.case]
         if not cases:
@@ -633,6 +738,10 @@ def scsi_compare(args, vasm):
                                                IOBASE=0x00f10000 if mode == 3 else 0x50f10000).items()]
         if mixed:
             defines.append('-DMIXED=1')
+        if args.pdma_reduction:
+            defines.append('-DPDMA_REDUCTION=1')
+            if name.endswith('_separated'):
+                defines.append('-DPDMA_SPACED=1')
         run([vasm, '-quiet', '-Fbin', '-m68040', '-no-opt', *defines, '-o', binary,
              FIXTURE / 'scsi_read10.s'], WORK / f'{name}_asm.log')
         offset = lba * (2048 if target == 3 else 512)
@@ -645,21 +754,33 @@ def scsi_compare(args, vasm):
         case = dict(name=name, target=target, lba=lba, blocks=blocks, dest=dest,
                     mixed=mixed, host_delay=delay, mode=mode, bytes=size,
                     program_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(), runs={})
+        report['cases'].append(case)
         for cpu in cpus:
             trace = WORK / f'{name}_{cpu}.trace'
-            output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+prog=' + str(binary),
-                          '+ram_program', '+image=' + str(args.image), '+trace=' + str(trace),
-                          f'+dest={dest}', f'+bytes={size}',
-                          f'+offset={offset}', f'+host_delay={delay}'],
-                         WORK / f'{name}_{cpu}.log')
+            logfile = WORK / f'{name}_{cpu}.log'
+            case['runs'][cpu] = dict(trace=str(trace), log=str(logfile))
+            try:
+                output = run([WORK / f'obj_{cpu}/Vtb_native_platform', '+prog=' + str(binary),
+                              '+ram_program', '+operand_trace', '+image=' + str(args.image), '+trace=' + str(trace),
+                              f'+dest={dest}', f'+bytes={size}',
+                              f'+offset={offset}', f'+host_delay={delay}'],
+                             logfile)
+            except SystemExit:
+                case['result'] = 'FAIL'
+                report_path.write_text(json.dumps(report, indent=2) + '\n')
+                raise
             if 'PASS SCSI' not in output:
                 raise SystemExit(f'{name}/{cpu}: missing SCSI success')
             print(f'{name}/{cpu}: ' + next(l for l in output.splitlines() if l.startswith('PASS SCSI')), flush=True)
             traces.append(normalized_trace(trace))
+            if args.pdma_reduction:
+                bulk_reads = [line for line in traces[-1][0] if line.startswith('B 0 2 50f50100 ')]
+                if len(bulk_reads) != size // 4:
+                    raise SystemExit(f'{name}/{cpu}: extra/missing bulk reads: {len(bulk_reads)}')
             wanted_ram = [f'R {dest+i:08x} {b:02x}' for i, b in enumerate(expected)]
             if traces[-1][2] != wanted_ram:
                 raise SystemExit(f'{name}/{cpu}: RAM trace differs from independent ISO bytes')
-            case['runs'][cpu] = dict(trace=str(trace), log=str(WORK / f'{name}_{cpu}.log'),
+            case['runs'][cpu] = dict(trace=str(trace), log=str(logfile),
                                      normalized_sha256=hashlib.sha256(repr(traces[-1]).encode()).hexdigest(),
                                      platform_result=next(l for l in output.splitlines() if l.startswith('PASS native CPU')))
         if len(traces) == 2:
@@ -671,8 +792,7 @@ def scsi_compare(args, vasm):
                         raise SystemExit(f'FIRST DIVERGENCE {name} {label}[{index}]: legacy {a}; faster {b}')
             print(f'{name}: MATCH bus={len(traces[0][0])} host_records={len(traces[0][1])} bytes={size}', flush=True)
         case['result'] = 'MATCH' if len(traces) == 2 else 'PASS (single CPU)'
-        report['cases'].append(case)
-        (WORK / 'scsi_results.json').write_text(json.dumps(report, indent=2) + '\n')
+        report_path.write_text(json.dumps(report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

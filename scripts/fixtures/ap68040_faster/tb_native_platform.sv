@@ -247,6 +247,8 @@ integer cycles=0, failures=0, done_wait=0;
 initial begin
     use_rom_lines=$test$plusargs("rom_lines");
     rom_jitter=$test$plusargs("rom_jitter");
+    void'($value$plusargs("rom_seed=%h",rom_delay_rng));
+    void'($value$plusargs("rom_latency=%d",romlat));
     if($test$plusargs("recovery")) begin
         recovery_mode=1;
         if(!$value$plusargs("trace=%s",trace_path)) $fatal(1,"missing recovery trace");
@@ -258,7 +260,7 @@ initial begin
         image_bytes=platform_image_open(image_path);
         if(image_bytes<=0) $fatal(1,"image open");
         if(!$value$plusargs("trace=%s",trace_path)) $fatal(1,"missing trace");
-        trace_fd=$fopen(trace_path,"w");
+        if(trace_fd==0) trace_fd=$fopen(trace_path,"w");
         if(!trace_fd) $fatal(1,"trace open");
         if(!$value$plusargs("dest=%d",dest) || !$value$plusargs("bytes=%d",expected_bytes) ||
            !$value$plusargs("offset=%d",expected_offset)) $fatal(1,"missing expected range");
@@ -296,6 +298,26 @@ initial begin
     end
 end
 always @(posedge clk_sys) if(nreset) begin
+    if(trace_fd!=0 && $test$plusargs("operand_trace")) begin
+        if(dut.bus_req && dut.bus_ack && (dut.bus_addr==32'h50f50100 ||
+           (dut.bus_write && dut.bus_addr>=32'h10000 && dut.bus_addr<32'h10040)))
+            $fdisplay(trace_fd,"P %0d %0d %08x %08x %0d",dut.bus_write,dut.bus_size,
+                      dut.bus_addr,dut.bus_write ? dut.bus_wdata : dut.bus_rdata,cycles);
+`ifndef Q800_LEGACY_CPU
+        if(dut.cpu.a_oe && !dut.cpu.ts_n && dut.cpu.a==32'h50f50100)
+            $fdisplay(trace_fd,"N TS %08x %0d %0d pc=%08x cacr=%08x dtt0=%08x dtt1=%08x tc=%08x cycle=%0d",
+                      dut.cpu.a,dut.cpu.siz,dut.cpu.rw_n,dut.cpu.pc,dut.cpu.core.cacr,
+                      dut.cpu.core.dtt0,dut.cpu.core.dtt1,dut.cpu.core.tc,cycles);
+        if(dut.cpu.a_oe && !dut.cpu.ta_n && dut.cpu.a==32'h50f50100)
+            $fdisplay(trace_fd,"N TA %08x %08x %0d",dut.cpu.a,dut.cpu.din,cycles);
+        if(dut.cpu.load_event)
+            $fdisplay(trace_fd,"L %024x %0d",dut.cpu.load_info,cycles);
+        if(dut.cpu.core.kill_now && dut.cpu.core.dmu.m2.r.a==32'h50f50100)
+            $fdisplay(trace_fd,"K %0d wb=%08x ex=%08x dc2=%08x m2=%08x est=%0d",cycles,
+                      dut.cpu.core.be.wb_u.pc,dut.cpu.core.be.ex_u.pc,dut.cpu.core.be.dc2_u.pc,
+                      dut.cpu.core.dmu.m2.r.a,dut.cpu.core.dmu.e_st);
+`endif
+    end
     cycles<=cycles+1;
     if(cycles>3000000) $fatal(1,"platform timeout status=%h",debug_status);
     if(debug_fault || debug_halted) $fatal(1,"unexpected CPU fault/halt status=%h",debug_status);
@@ -322,7 +344,6 @@ always @(posedge clk_sys) if(nreset) begin
             if(recovery_mode) begin
                 for(integer b='h3100;b<'h3260;b+=2)
                     $fdisplay(trace_fd,"M %04x %04x",b,chip.mem[sdcell(b&~3,(b&2)!=0)]);
-                $fclose(trace_fd);
                 $display("PASS recovery capture");
             end
             if(scsi_mode) begin
@@ -334,9 +355,9 @@ always @(posedge clk_sys) if(nreset) begin
                     $fdisplay(trace_fd,"R %08x %02x",dest+b,count);
                     if(count!=int'(expected[b])) $fatal(1,"RAM byte %h got=%02h expected=%02h",dest+b,count,expected[b]);
                 end
-                $fclose(trace_fd);
                 $display("PASS SCSI bytes=%0d host_requests=%0d",expected_bytes,host_requests);
             end
+            if(trace_fd!=0) $fclose(trace_fd);
             $display("PASS native CPU + real Q800 bus32/service + SDRAM bridge/controller program test cycles=%0d protocol_errors=%0d",cycles,chip.errors+chip_hi.errors);
             if(full_rom_path!="") $display("ROM replay reads=%0d retained_lines=%0d jitter=%0d",rom_reads,use_rom_lines,rom_jitter);
             $finish;

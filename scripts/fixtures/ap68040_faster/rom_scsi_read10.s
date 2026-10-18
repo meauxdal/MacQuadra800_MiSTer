@@ -2,6 +2,15 @@
 ; Low-memory globals and initialized SCSI manager tables come from the saved
 ; pre-boot snapshot, injected only as program input by the runner.
 RESULT equ $3200
+    ifnd DEST
+DEST equ $10000
+    endif
+    ifnd BLOCKS
+BLOCKS equ 1
+    endif
+    ifnd READSEL
+READSEL equ 5
+    endif
     org 0
     dc.l $e000,start
     rept 254
@@ -28,8 +37,8 @@ host_ready:
     clr.l RESULT
     clr.w status
     clr.w message
-    move.l #$d15ea5ed,($fffc).l
-    move.l #$d15ea5ed,($10000+BYTES).l
+    move.l #$d15ea5ed,(DEST-4).l
+    move.l #$d15ea5ed,(DEST+BYTES).l
 ; Pascal caller allocates result, pushes parameters, then selector.
     clr.w -(sp)
     move.w #1,-(sp)              ; SCSIGet
@@ -54,7 +63,7 @@ host_ready:
     addq.l #1,RESULT
     clr.w -(sp)
     pea tib(pc)
-    move.w #5,-(sp)              ; SCSIRead (non-blind)
+    move.w #READSEL,-(sp)        ; SCSIRead=5 or SCSIRBlind=8
     dc.w $a815
     move.w (sp)+,RESULT+$a
     bne fail
@@ -78,7 +87,7 @@ host_ready:
     cpusha dc
     moveq #0,d0
     movec d0,cacr
-    lea ($10000).l,a0
+    lea (DEST).l,a0
     lea ($8000).l,a1
     move.w #BYTES-1,d7
 check:
@@ -86,22 +95,27 @@ check:
     cmp.b (a1)+,d0
     bne fail
     dbra d7,check
-    cmp.l #$d15ea5ed,($fffc).l
+    cmp.l #$d15ea5ed,(DEST-4).l
     bne fail
-    cmp.l #$d15ea5ed,($10000+BYTES).l
+    cmp.l #$d15ea5ed,(DEST+BYTES).l
     bne fail
     move.w #$600d,($f102).l
     bra *
 cdb:
-    dc.b $28,0,0,0,0,LBA,0,0,1,0
+    dc.b $28,0,0,0,0,LBA,0,0,BLOCKS,0
 tib:
     dc.w 1
-    dc.l $10000,BYTES
+    dc.l DEST,BYTES
     dc.w 7
     dc.l 0,0
 status: dc.w 0
 message: dc.w 0
 fail:
+    move.w sr,RESULT+$18
+    move.l d0,RESULT+$1c
+    move.l a0,RESULT+$20
+    move.l a1,RESULT+$24
+    move.l d7,RESULT+$28
     cpusha dc
     moveq #0,d0
     movec d0,cacr

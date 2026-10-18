@@ -61,8 +61,10 @@ bulk_pages:
     movec d0,tc
     endif
     ifne MODE
+    ifnd PDMA_REDUCTION
     move.l #$80008000,d0
     movec d0,cacr
+    endif
     endif
     lea (IOBASE).l,a0
     lea $100(a0),a2
@@ -108,6 +110,11 @@ gate:
     beq gate
     btst #4,$70(a0)
     beq gate
+; The original ROM synchronizes with NOP immediately before this group.
+; Keep the real device and polling path while reducing the ROM dispatch.
+    ifd PDMA_REDUCTION
+    nop
+    endif
     ifd MIXED
     move.b (a2),(a1)+
     move.w (a2),(a1)+
@@ -117,8 +124,17 @@ gate:
     move.b (a2),(a1)+
     else
     move.l (a3),(a1)+
+    ifd PDMA_SPACED
+    nop
+    endif
     move.l (a3),(a1)+
+    ifd PDMA_SPACED
+    nop
+    endif
     move.l (a3),(a1)+
+    ifd PDMA_SPACED
+    nop
+    endif
     move.l (a3),(a1)+
     endif
     bsr irq_regs

@@ -1351,8 +1351,11 @@ always_ff @(posedge clk) begin
 				e_st <= E_S_ACT;
 			end
 		end
-		E_S_ACT: if (e_kill) begin
-			// the uop was discarded (no bus operation is in flight here)
+		E_S_ACT: if (e_kill || kill_now) begin
+			// Include the current WB redirect: e_kill is registered below.
+			// Otherwise a younger device read can start on the same clock
+			// a serializing NOP discards it, consuming data without a commit.
+			// No bus operation is in flight here.
 			steal <= 1'b0;
 			e_job <= 1'b0;
 			e_st  <= E_IDLE;

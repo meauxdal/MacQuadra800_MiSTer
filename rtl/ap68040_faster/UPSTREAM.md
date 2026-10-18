@@ -18,6 +18,13 @@ it is not in the default FPGA or full-machine simulator source list.
 
 Local changes to upstream:
 
+* `rtl/ap68040_dmu.sv`: check `kill_now` alongside registered `e_kill`
+  before starting an operand access in `E_S_ACT`. A serializing NOP could
+  otherwise discard a younger device load on the very clock the load
+  started, consuming a FIFO word without committing it. Original Quadra
+  ROM SCSIRead and a reduced real-PDMA case demonstrate 640 reads instead
+  of 512 before this fix, and exact data/512 reads after it. See
+  `docs/ap68040-pdma-cancellation.md` in the platform repository.
 * `rtl/ap68040.qip`: ordered Quartus source list and include paths.
 * `rtl/ap68040_ram.sv`: put the two ports of `ap68040_tdp` in separate
   clocked processes. Quartus 17.0.2 on Windows implemented the original
