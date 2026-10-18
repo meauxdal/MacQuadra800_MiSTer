@@ -484,3 +484,22 @@ committed MOVEA source addresses/results, including cache hits, at this
 specific fault. Tests cover native event pairing and observer retention.
 The CPU's functional behavior is unchanged. No FPGA build or full-machine
 boot simulation ran. [Complete recording analysis and next capture](ap68040-hardware-20261017-retail81.md).
+
+## Three follow-up videos and updated upstream
+
+The three 2026-10-18 recordings do not trigger the `$408253CC` pointer
+capture. One instead records a word-read ATC fault at PC `$0000FC4E`,
+address `$FFFFB1DF`, SSW `$0545`, immediately before the later fault flood.
+The other attempts remain in ROM boot/search activity with recoverable
+probe faults. This does not establish a shared cause for all boot failures;
+another overlay specialized to one fault is not justified.
+
+Upstream is now pinned to `a171fdf` (two FPU fixes plus their backend/MMU
+timing changes), preserving local integration changes. Forty selected
+upstream runs and the fixed/random native adapter tests pass. A reusable
+short full memory-path test now connects native CPU programs through the
+real Q800 service and SDRAM controller rather than the adapter's ideal array.
+Pointer, FPU arithmetic/exception, and store/load programs pass with zero
+SDRAM protocol errors. Disk/HPS traffic and the complete OS MMU/recovery
+state remain outside that coverage. No further hardware run is requested
+on this evidence. [Recording analysis, update, and test limits](ap68040-hardware-20261018.md).

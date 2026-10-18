@@ -2,9 +2,15 @@
 
 Source: https://github.com/apolkosnik/AP68040/tree/faster
 
-Pinned commit: `ab4d83d36c33ea6bc5d0bbf19feb5df11a8de892`
-(`DMU: MOVE16 from a cached source copies the hit way's line`). Imported
-from the clean local `faster` checkout on 2026-10-17. License: GPL v2 or later.
+Pinned commit: `a171fdfe87a6eb192d8840f9bc4d7186e587dcae`
+(`FPU: arithmetic exceptions pend to the next FPU instruction; frames per
+table 9-16`). Updated from the clean local `faster` checkout on 2026-10-18,
+after fetching and verifying `origin/faster`. License: GPL v2 or later.
+
+This adds `8c778ee` (underflow denormalization and saved intermediate state)
+and `a171fdf` (arithmetic-exception delivery and FPU frames), including their
+backend/MMU timing changes and new `t_fpexc` regression. Local RAM mapping and
+read-only diagnostic exports are preserved. No hardware boot fix is claimed.
 
 The active Q800 CPU is this pipelined implementation. The previous sequential
 fork remains in `../ap68040/` for historical comparisons and regression tools;
