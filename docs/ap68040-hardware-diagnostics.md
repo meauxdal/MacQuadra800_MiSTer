@@ -18,6 +18,7 @@ The top-left overlay fits the 512-pixel monitor mode and shows:
 | `LAST vv f pppppppp aaaaaaaa ssss` | Latest selected fault: vector, frame format, logical PC, fault address, SSW. Cache-push fault addresses are physical. |
 | `RAM1 vv f pppppppp aaaaaaaa ssss` | First selected fault after retirement at a low logical address `$10000..$07FFFFFF`; frozen until the switch is rearmed. This is a boot-stage heuristic, not physical address translation. |
 | `RST PC … RAM …` | Backend PC when the most recent machine reset began; whether the low-address retirement heuristic has fired. |
+| `P0 … … b`, `P1 … … b`, `P2 … … b` | Logical source address, loaded pointer value, validity bit for the three MOVEA loads before the observed retail 8.1 fault. `PTR 1` on the reset-PC row means these rows are frozen. |
 
 The selected vectors are 2 (access error), 3 (address error), 4 (illegal
 instruction), 8 (privilege violation), and 14 (format error). Normal A-line,
@@ -25,6 +26,15 @@ F-line, trap, interrupt and trace traffic does not overwrite the capture.
 An early fault can be an intentional ROM probe; a displayed fault alone is
 not proof that it caused the visible failure. All-zero fault rows mean no
 selected event has been recorded in that slot.
+
+The retail 8.1 recording identified an access error at `$408253CC`, reading
+through `$B6DB6DB6`, a ROM RAM-test pattern. The added pointer rows record
+committed results at `$408253C2`, `$408253C6`, and `$408253C8`, including cache
+hits, and freeze at an access error at `$408253CC`. Each new invocation clears
+the older tail entries. Capture all nine rows on the next run. These addresses
+belong to this ROM; they are not generic fault tracking for every ROM or boot
+failure. [Recording analysis](ap68040-hardware-20261017-retail81.md) explains
+the evidence and how the next capture narrows its source.
 
 For a hang, two screenshots several seconds apart show whether PC or bus state
 is still moving. For a restart loop, `ROM` advancing with `RST` unchanged

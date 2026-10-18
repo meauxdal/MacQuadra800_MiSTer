@@ -465,3 +465,22 @@ resets. [Usage and field definitions](ap68040-hardware-diagnostics.md) explain
 the filters, boot-stage heuristic and reset distinction. The observer changes
 no CPU recovery or bus behavior. Directed capture/CDC/reset tests and native
 event checks pass; no hardware build or full boot run was started.
+
+## Retail 8.1 hardware evidence: bad pointer before the fault flood
+
+The user supplied `2026-10-17 19-51-31.mkv`, confirming known-good retail
+8.1 media. The recording ends at Sad Mac `0000000F / 00000001`, with
+`RST=1, ROM=1` unchanged. The important transition is at about 18.72 seconds:
+fault count `$0049` becomes `$004A`, PC `$408253CC`, address `$B6DB6DB6`,
+SSW `$0105`. The instruction is `MOVEA.L (A0),A0` after three dependent
+pointer loads. The address matches the ROM RAM-test pattern. Later VIA
+mirror faults at `$408046AC / $50F81C00 / $0525` rapidly overwrite LAST;
+they occur after the pointer fault and should not displace that lead.
+
+The exact pointer sequence passes a short 32-offset/four-cache-condition
+probe under fixed and random latency. This does not establish how hardware
+obtained the bad pointer. The overlay now freezes the three preceding
+committed MOVEA source addresses/results, including cache hits, at this
+specific fault. Tests cover native event pairing and observer retention.
+The CPU's functional behavior is unchanged. No FPGA build or full-machine
+boot simulation ran. [Complete recording analysis and next capture](ap68040-hardware-20261017-retail81.md).

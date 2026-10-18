@@ -147,6 +147,8 @@ module ap68040_backend
 	output logic [31:0] dbg_retire_pc,
 	output logic        dbg_exception,
 	output logic [95:0] dbg_exception_info,
+	output logic        dbg_load,
+	output logic [95:0] dbg_load_info,
 	output logic        halted,
 	output logic        fetch_stop      // no new instruction fetches: stopped
                                         // (STOP) or halted
@@ -189,6 +191,7 @@ logic [15:0] ex_fssw;
 
 // results carried into WB
 logic [31:0] wb_res;
+logic [31:0] wb_dbg_ea;       // observation only: EA paired with WB's result
 logic  [4:0] wb_ccr;          // CCR after this uop
 logic        wb_dwe;          // result register write (after EX kills)
 logic [31:0] wb_upd_val, wb_upd2_val;
@@ -1407,6 +1410,13 @@ wire x_go        = ((adv_wb && wb_is_exc && !wb_refetch) || take_trace || take_i
 // and the pipeline are changed. PC/address are logical, except cache pushes.
 assign dbg_exception = x_go;
 assign dbg_exception_info = {x_vec, x_fmt, x_kind, x_pc, x_addr, x_ssw};
+// A committed load result, including cache hits. MOVEA returns the loaded
+// pointer here; other ALU operations may transform their memory operand.
+assign dbg_load = nreset && wb_commit && wb_dwe && wb_u.mem == M_LD;
+assign dbg_load_info = {wb_u.pc, wb_dbg_ea, wb_res};
+always_ff @(posedge clk)
+	if (!nreset) wb_dbg_ea <= 32'd0;
+	else if (adv_ex) wb_dbg_ea <= ex_ea;
 // a locked sequence (TAS, CAS, CAS2, a table update) ends with its LOCKE
 // write; before that only an exception ends it
 assign lk_abandon = x_go || dbl_fault;

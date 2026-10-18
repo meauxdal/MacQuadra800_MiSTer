@@ -50,6 +50,8 @@ module wombat_cpu (
     wire [31:0] retire_pc;
     wire exception_event;
     wire [95:0] exception_info;
+    wire load_event;
+    wire [95:0] load_info;
     wire [6:0] bridge_state;
     wire [3:0] pst;
     // Match Q800's physical cacheability, independently of TC/TTR/page CM:
@@ -75,7 +77,7 @@ module wombat_cpu (
                             ipl, tci_n, bridge_state, retire,
                             debug_halted, stall_hold, berr, bus_ack,
                             bus_instr, bus_write, bus_req}, pc};
-    assign debug_status2 = 0;
+    assign debug_status2 = {31'd0, load_event, load_info};
     assign cacr_out = 0;
     assign vbr_out = 0;
     always @(posedge clk) begin
@@ -97,7 +99,8 @@ module wombat_cpu (
         .cdis_n(1'b1), .mdis_n(1'b1), .ipend_n(), .pst(pst),
         .dbg_pc(pc), .dbg_retire(retire), .dbg_halted(debug_halted),
         .dbg_retire_pc(retire_pc),
-        .dbg_exception(exception_event), .dbg_exception_info(exception_info)
+        .dbg_exception(exception_event), .dbg_exception_info(exception_info),
+        .dbg_load(load_event), .dbg_load_info(load_info)
     );
     wombat_ap68040_bus bridge (
         .clk(clk), .nreset(nreset), .ce(ce),

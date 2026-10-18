@@ -12,6 +12,7 @@ module tb_ap68040_faster;
     logic [3:0] dma_be=15, dma_mem_be;
     logic dma_mem_req, dma_mem_write, dma_mem_ack=0;
     logic [255:0] debug_status;
+    logic [127:0] debug_status2;
     logic [7:0] mem[65536];
     logic [15:0] image[32768];
     string program_file;
@@ -25,6 +26,7 @@ module tb_ap68040_faster;
     integer overlap_count=0;
     integer io_reads=0;
     integer diagnostic_faults=0;
+    integer diagnostic_loads=0;
     logic expected_retire=0;
     logic [31:0] expected_retire_pc=0;
     always @(posedge clk) begin
@@ -54,7 +56,7 @@ module tb_ap68040_faster;
         .dma_mem_ack(dma_mem_ack), .dma_mem_rdata(dma_mem_rdata),
         .nresetout(), .nmi_ack_toggle(), .cacr_out(), .vbr_out(),
         .debug_busy(), .debug_fault(), .debug_halted(halted),
-        .debug_status(debug_status), .debug_status2()
+        .debug_status(debug_status), .debug_status2(debug_status2)
     );
     function automatic logic [31:0] read_mem(input logic [31:0] a, input integer count);
         logic [31:0] value;
@@ -74,6 +76,14 @@ module tb_ap68040_faster;
     end
     always @(posedge clk) if(nreset) begin
         if ($test$plusargs("trace") && dut.retire) $display("RETIRE pc=%h sr=%h",debug_status[31:0],dut.core.sr);
+        if ($test$plusargs("trace") && debug_status2[96])
+            $display("LOAD pc=%h ea=%h result=%h",debug_status2[95:64],debug_status2[63:32],debug_status2[31:0]);
+        if ($test$plusargs("check_diag") && debug_status2[96] && debug_status2[63:32]==32'hf400) begin
+            diagnostic_loads<=diagnostic_loads+1;
+            if (diagnostic_faults!=1 || debug_status2[31:0]!=32'hface1234 ||
+                read_mem(debug_status2[95:64],2)!=32'h2039)
+                $fatal(1,"committed load observer emitted faulting/wrong PC/EA/result %h",debug_status2);
+        end
         cycles<=cycles+1;
         if ($test$plusargs("check_diag") && debug_status[239] && debug_status[223:216]==8'd2) begin
             diagnostic_faults<=diagnostic_faults+1;
@@ -143,6 +153,8 @@ module tb_ap68040_faster;
                             if(io_reads!=4) $fatal(1,"physical device registers read %d times",io_reads);
                             if($test$plusargs("check_diag") && diagnostic_faults!=1)
                                 $fatal(1,"expected one diagnostic access fault, got %d",diagnostic_faults);
+                            if($test$plusargs("check_diag") && diagnostic_loads!=1)
+                                $fatal(1,"expected one committed diagnostic load, got %d",diagnostic_loads);
                             $display("PASS AP68040 Q800 integration cycles=%0d CPU transfers=%0d DMA memory transfers=%0d",cycles,transfers,dma_transfers);
                             $finish;
                         end

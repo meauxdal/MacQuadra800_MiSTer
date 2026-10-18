@@ -76,6 +76,8 @@ module ap68040
 	output logic [31:0] dbg_retire_pc,
 	output logic        dbg_exception,
 	output logic [95:0] dbg_exception_info,
+	output logic        dbg_load,
+	output logic [95:0] dbg_load_info,
 	output logic        dbg_halted
 );
 
@@ -278,6 +280,7 @@ ap68040_backend #(.FPU_REVISION(FPU_REVISION), .FPU_PIPE(FPU_PIPE), .EARLY_RES(E
 	.dbg_pc(dbg_pc), .dbg_retire(dbg_retire),
 	.dbg_retire_pc(dbg_retire_pc),
 	.dbg_exception(dbg_exception), .dbg_exception_info(dbg_exception_info),
+	.dbg_load(dbg_load), .dbg_load_info(dbg_load_info),
 	.halted(dbg_halted), .fetch_stop(be_fstop)
 );
 

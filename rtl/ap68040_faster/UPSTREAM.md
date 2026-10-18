@@ -34,6 +34,13 @@ Local changes to upstream:
   with `dbg_retire`. The Q800 diagnostic overlay consumes these; no CPU
   control or recovery behavior changes. Both direct-core benches explicitly
   leave the new observation outputs unconnected.
+  The hardware follow-up also exports a committed load's PC, logical EA, and
+  result, including cache hits. A separate observer register carries EX's EA
+  alongside WB; it does not feed CPU control. For non-MOVE operations this is
+  the committed result, which may transform the memory operand. Q800 uses it
+  to freeze the three MOVEA pointer sources preceding the captured ROM fault
+  at `$408253CC`. The wrapper carries this event in `debug_status2` bit 96,
+  with `{PC, EA, result}` in bits 95:0.
 
 Q800 integration lives outside this directory: `../wombat_cpu_ap68040.sv`,
 `../wombat_ap68040_bus.sv`, and `../quadra800.sv`. Generated decode and

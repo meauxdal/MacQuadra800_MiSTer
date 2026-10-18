@@ -946,6 +946,7 @@ wire cpu_diag_box, cpu_diag_ink;
 ap68040_diag_overlay cpu_diagnostics (
 	.clk_sys(clk_sys), .clk_vid(clk_vid), .enable(status[48]),
 	.machine_reset(reset), .cpu_status(m_debug_status),
+	.cpu_status2(m_debug_status2),
 	.ce_pixel(CE_PIXEL), .hblank(m_hblank), .vblank(m_vblank),
 	.box(cpu_diag_box), .ink(cpu_diag_ink)
 );

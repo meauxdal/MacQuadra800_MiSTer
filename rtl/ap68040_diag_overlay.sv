@@ -4,6 +4,7 @@ module ap68040_diag_overlay (
     input logic clk_sys, clk_vid,
     input logic enable, machine_reset,
     input logic [255:0] cpu_status,
+    input logic [127:0] cpu_status2,
     input logic ce_pixel, hblank, vblank,
     output logic box, ink
 );
@@ -12,6 +13,9 @@ module ap68040_diag_overlay (
         logic [31:0] pc, bus_addr, state_bits, reset_pc;
         logic [95:0] latest, first_ram;
         logic ram_seen;
+        logic [63:0] pointer0, pointer1, pointer2;
+        logic [2:0] pointer_valid;
+        logic pointer_frozen;
     } snapshot_t;
     snapshot_t captured = '0, held = '0, shown = '0;
     logic enable_q = 0, reset_q = 0, rom_q = 0;
@@ -29,6 +33,9 @@ module ap68040_diag_overlay (
                           vector_number == 4 || vector_number == 8 || vector_number == 14;
     wire [31:0] retire_pc = cpu_status[95:64];
     wire rom_entry = retired && (retire_pc == 32'h0000008c || retire_pc == 32'h4080008c);
+    wire pointer_fault = event_valid && vector_number == 2 &&
+                         event_info[79:48] == 32'h408253cc;
+    wire load_valid = native_cpu && cpu_status2[96];
 
     always_ff @(posedge clk_sys) begin
         enable_q <= enable;
@@ -46,6 +53,31 @@ module ap68040_diag_overlay (
             captured.pc <= cpu_status[31:0];
             captured.bus_addr <= cpu_status[127:96];
             captured.state_bits <= {machine_reset, cpu_status[62:32]};
+            // The observed retail 8.1 failure follows these three MOVEA
+            // loads. Keep one invocation's logical EAs/results, including
+            // cache hits, and freeze at the actual failing dereference.
+            if (!machine_reset && !captured.pointer_frozen) begin
+                if (load_valid) begin
+                    case (cpu_status2[95:64])
+                        32'h408253c2: begin
+                            captured.pointer0 <= cpu_status2[63:0];
+                            captured.pointer1 <= '0;
+                            captured.pointer2 <= '0;
+                            captured.pointer_valid <= 3'b001;
+                        end
+                        32'h408253c6: if (captured.pointer_valid == 3'b001) begin
+                            captured.pointer1 <= cpu_status2[63:0];
+                            captured.pointer_valid <= 3'b011;
+                        end
+                        32'h408253c8: if (captured.pointer_valid == 3'b011) begin
+                            captured.pointer2 <= cpu_status2[63:0];
+                            captured.pointer_valid <= 3'b111;
+                        end
+                        default: ;
+                    endcase
+                end
+                if (pointer_fault) captured.pointer_frozen <= 1;
+            end
             if (machine_reset && !reset_q) begin
                 captured.resets <= captured.resets + 1'b1;
                 captured.reset_pc <= cpu_status[31:0];
@@ -140,17 +172,21 @@ module ap68040_diag_overlay (
     always_comb begin
         rx = x - 11'd16; ry = y - 11'd16;
         column = int'(rx) / 12; gx = (int'(rx) % 12) / 2;
-        case (ry[6:4])
+        case (ry[7:4])
             0: line_text = {"AP040 PC ",hex32(shown.pc),{23{8'h20}}};
             1: line_text = {"BUS ",hex32(shown.bus_addr)," STATE ",hex32(shown.state_bits),{13{8'h20}}};
             2: line_text = {"RST ",hex16(shown.resets)," ROM ",hex16(shown.rom_entries)," FAULT ",hex16(shown.faults),{12{8'h20}}};
             3: line_text = {"LAST ",hex8(shown.latest[95:88])," ",hex_digit(shown.latest[87:84])," ",hex32(shown.latest[79:48])," ",hex32(shown.latest[47:16])," ",hex16(shown.latest[15:0]),{8{8'h20}}};
             4: line_text = {"RAM1 ",hex8(shown.first_ram[95:88])," ",hex_digit(shown.first_ram[87:84])," ",hex32(shown.first_ram[79:48])," ",hex32(shown.first_ram[47:16])," ",hex16(shown.first_ram[15:0]),{8{8'h20}}};
-            default: line_text = {"RST PC ",hex32(shown.reset_pc)," RAM ",hex_digit({3'd0,shown.ram_seen}),{19{8'h20}}};
+            5: line_text = {"RST PC ",hex32(shown.reset_pc)," RAM ",hex_digit({3'd0,shown.ram_seen})," PTR ",hex_digit({3'd0,shown.pointer_frozen}),{13{8'h20}}};
+            6: line_text = {"P0 ",hex32(shown.pointer0[63:32])," ",hex32(shown.pointer0[31:0])," ",hex_digit({3'd0,shown.pointer_valid[0]}),{18{8'h20}}};
+            7: line_text = {"P1 ",hex32(shown.pointer1[63:32])," ",hex32(shown.pointer1[31:0])," ",hex_digit({3'd0,shown.pointer_valid[1]}),{18{8'h20}}};
+            8: line_text = {"P2 ",hex32(shown.pointer2[63:32])," ",hex32(shown.pointer2[31:0])," ",hex_digit({3'd0,shown.pointer_valid[2]}),{18{8'h20}}};
+            default: line_text = {40{8'h20}};
         endcase
         character = column < 40 ? line_text[319-8*column-:8] : 8'h20;
         pixels = glyph(character, ry[3:1]);
-        box = enable_v[1] && !hblank && !vblank && x >= 16 && x < 496 && y >= 16 && y < 112;
+        box = enable_v[1] && !hblank && !vblank && x >= 16 && x < 496 && y >= 16 && y < 160;
         ink = box && gx < 5 && pixels[4-gx];
     end
 endmodule
