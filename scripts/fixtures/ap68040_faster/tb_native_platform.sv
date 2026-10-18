@@ -1,4 +1,4 @@
-// Short native CPU tests on quadra800 + sdram_beat32 + sdram.sv.
+// Short legacy/faster CPU tests on quadra800 + sdram_beat32 + sdram.sv.
 // The SDRAM chip model comes from verilator/tb_sdram.sv; no guest OS boot.
 `timescale 1ps/1ps
 
@@ -163,6 +163,7 @@ integer host_state=0, host_delay=40, host_wait=0, host_slot=0, host_words=0, hos
 integer trace_fd=0, host_requests=0;
 integer dest=0, expected_bytes=0, expected_offset=0, image_bytes=0;
 integer scsi_mode=0;
+integer recovery_mode=0;
 reg [31:0] host_lba=0;
 reg [7:0] expected [0:16383];
 // Same HPS protocol as tb_ncr53c96 / sim_blkdevice: ack leads word zero,
@@ -183,15 +184,24 @@ always @(posedge clk_sys) if(nreset && scsi_mode) begin
         host_wait <= host_delay; host_state <= (|io_rd) ? 1 : 4;
     end
     1: if(host_wait!=0) host_wait<=host_wait-1;
-       else begin io_ack[host_slot]<=1; host_i<=0; host_state<=2; end
+       else begin
+           io_ack[host_slot]<=1; host_i<=0; host_state<=2;
+           $fdisplay(trace_fd,"H ACK+ %0d",host_slot);
+       end
     2: if(host_i<host_words) begin
         sd_buff_addr<=13'(host_i);
         sd_buff_dout<=16'((platform_image_byte(host_i*2)<<8)|platform_image_byte(host_i*2+1));
         sd_buff_wr<=1; host_i<=host_i+1;
-    end else begin io_ack<=0; host_state<=3; end
+    end else begin
+        io_ack<=0; host_state<=3;
+        $fdisplay(trace_fd,"H ACK- %0d",host_slot);
+    end
     3: host_state<=0;
     4: if(host_wait!=0) host_wait<=host_wait-1;
-       else begin io_ack[host_slot]<=1; host_i<=0; host_state<=5; end
+       else begin
+           io_ack[host_slot]<=1; host_i<=0; host_state<=5;
+           $fdisplay(trace_fd,"H ACK+ %0d",host_slot);
+       end
     5: begin
         // Registered address plus registered target-buffer read: capture i-2.
         if(host_i>=2 && host_i<258) begin
@@ -203,26 +213,36 @@ always @(posedge clk_sys) if(nreset && scsi_mode) begin
         if(host_i==258) begin
             platform_window_write(host_lba);
             io_ack<=0; host_state<=3;
+            $fdisplay(trace_fd,"H ACK- %0d",host_slot);
         end
     end
     endcase
     // Completed physical CPU transactions; polling is retained in the raw
     // trace, normalized by the runner only when it has no device side effect.
-    if(dut.bus_req && dut.bus_ack && dut.bus_addr[31:20]==12'h50f)
+    if(dut.bus_req && dut.bus_ack && dut.bus_addr[31:28]==4'h5) begin
         $fdisplay(trace_fd,"B %0d %0d %08x %08x",dut.bus_write,dut.bus_size,
                   dut.bus_addr,dut.bus_write ? dut.bus_wdata : dut.bus_rdata);
+        $fflush(trace_fd);
+    end
     if(dbg_berr) $fatal(1,"unexpected bus error address=%h",dbg_berr_addr);
 end
 string path;
 integer fd,count,i;
 integer cycles=0, failures=0, done_wait=0;
 initial begin
+    if($test$plusargs("recovery")) begin
+        recovery_mode=1;
+        if(!$value$plusargs("trace=%s",trace_path)) $fatal(1,"missing recovery trace");
+        trace_fd=$fopen(trace_path,"w");
+        if(!trace_fd) $fatal(1,"recovery trace open");
+    end
     if($value$plusargs("image=%s",image_path)) begin
         scsi_mode=1;
         image_bytes=platform_image_open(image_path);
         if(image_bytes<=0) $fatal(1,"image open");
         if(!$value$plusargs("trace=%s",trace_path)) $fatal(1,"missing trace");
         trace_fd=$fopen(trace_path,"w");
+        if(!trace_fd) $fatal(1,"trace open");
         if(!$value$plusargs("dest=%d",dest) || !$value$plusargs("bytes=%d",expected_bytes) ||
            !$value$plusargs("offset=%d",expected_offset)) $fatal(1,"missing expected range");
         if(expected_bytes>16384 || expected_bytes<=0) $fatal(1,"expected range too large");
@@ -255,6 +275,11 @@ always @(posedge clk_sys) if(nreset) begin
     cycles<=cycles+1;
     if(cycles>3000000) $fatal(1,"platform timeout status=%h",debug_status);
     if(debug_fault || debug_halted) $fatal(1,"unexpected CPU fault/halt status=%h",debug_status);
+    if(recovery_mode && dut.bus_req && dut.bus_ack && dut.bus_addr[31:28]==4'h5) begin
+        $fdisplay(trace_fd,"B %0d %0d %08x %08x",dut.bus_write,dut.bus_size,
+                  dut.bus_addr,dut.bus_write ? dut.bus_wdata : dut.bus_rdata);
+        $fflush(trace_fd);
+    end
     if(dut.bus_req && dut.bus_ack && dut.bus_write && dut.bus_addr==32'hf102) begin
         if(dut.bus_wdata!=32'h600d) $fatal(1,"program failed status=%h",debug_status);
         done_wait<=1;
@@ -263,8 +288,15 @@ always @(posedge clk_sys) if(nreset) begin
         done_wait<=done_wait+1;
         if(done_wait==64) begin
             if(chip.errors+chip_hi.errors!=0) $fatal(1,"SDRAM protocol errors");
+            if(recovery_mode) begin
+                for(integer b='h3100;b<'h3260;b+=2)
+                    $fdisplay(trace_fd,"M %04x %04x",b,chip.mem[sdcell(b&~3,(b&2)!=0)]);
+                $fclose(trace_fd);
+                $display("PASS recovery capture");
+            end
             if(scsi_mode) begin
                 if(host_requests==0) $fatal(1,"no host requests");
+                if(host_state!=0 || io_ack!=0) $fatal(1,"host transfer still active at completion");
                 for(integer b=0;b<expected_bytes;b++) begin
                     if((b+dest)&1) count=chip.mem[sdcell((dest+b)&~3,((dest+b)&2)!=0)] & 255;
                     else count=chip.mem[sdcell((dest+b)&~3,((dest+b)&2)!=0)] >> 8;

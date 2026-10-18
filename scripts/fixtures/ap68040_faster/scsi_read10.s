@@ -24,7 +24,7 @@ host_ready:
 ; 8K tables with the saved page's CM=2/DT=1/U/M attributes ($59).
 ; Map RAM through 256K, both physical SCSI port images and the low alias.
     lea ($4400).l,a0
-    moveq #$19,d0
+    moveq #$39,d0
     moveq #31,d1
 ram_pages:
     move.l d0,(a0)+
@@ -68,6 +68,8 @@ bulk_pages:
     lea $100(a0),a2
     lea ($40000+$100)(a0),a3
     lea (DEST).l,a1
+    move.l #$d15ea5ed,-4(a1)
+    move.l #$d15ea5ed,BYTES(a1)
     move.b #2,$30(a0)
     move.b #TARGET,$40(a0)
     move.b #1,$30(a0)
@@ -89,6 +91,10 @@ bulk_pages:
     move.b #BLOCKS,$20(a0)
     clr.b (a2)
     bsr irq_regs
+    cmp.b #$18,d2
+    bne fail
+    cmp.b #4,d1
+    bne fail
     and.b #7,d0
     cmp.b #1,d0
     bne fail
@@ -116,23 +122,42 @@ gate:
     move.l (a3),(a1)+
     endif
     bsr irq_regs
+    cmp.b #$10,d2
+    bne fail
     dbra d7,burst
     and.b #7,d0
     cmp.b #3,d0
     bne fail
     move.b #$11,$30(a0)
     bsr irq_regs
-    btst #3,d2
-    beq fail
+    cmp.b #8,d2
+    bne fail
     tst.b $20(a0)
     bne fail
     tst.b $20(a0)
     bne fail
     move.b #$12,$30(a0)
     bsr irq_regs
-    btst #5,d2
-    beq fail
+    cmp.b #$20,d2
+    bne fail
+; Independent known ISO bytes are appended to the program at $8000.
+; Check through the CPU/cache as well as the fixture's physical SDRAM check.
+    lea (DEST).l,a1
+    cmp.l #$d15ea5ed,-4(a1)
+    bne fail
+    cmp.l #$d15ea5ed,BYTES(a1)
+    bne fail
+    lea ($8000).l,a4
+    move.l #BYTES-1,d6
+verify:
+    cmpm.b (a1)+,(a4)+
+    bne fail
+    dbra d6,verify
     cpusha dc
+; The completion mailbox is RAM too. Make its write observable externally
+; after flushing the verified copyback destination.
+    moveq #0,d0
+    movec d0,cacr
     move.w #$600d,($f102).l
     bra *
 irq_regs:
@@ -143,5 +168,8 @@ irq_regs:
     move.b $50(a0),d2
     rts
 fail:
+    cpusha dc
+    moveq #0,d0
+    movec d0,cacr
     move.w #$bad0,($f102).l
     bra *
